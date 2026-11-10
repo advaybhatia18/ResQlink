@@ -35,7 +35,9 @@ priorities. The frontend is made of static HTML pages.
 ├── frontend-tests/          # Node.js tests for browser API/session handling
 ├── conftest.py              # Builds the C engine into a temporary test directory
 ├── supabase/schema.sql      # Supabase tables and signup trigger
-├── .github/workflows/       # GitHub Pages deployment
+├── pytest.ini               # pytest discovery settings
+├── requirements-dev.txt     # Backend and pytest dependencies
+├── .github/workflows/       # Tests and gated GitHub Pages deployment
 ├── render.yaml              # Render API deployment
 ├── requirements.txt
 └── .env.example
@@ -61,12 +63,15 @@ The test suite uses `pytest` for Python tests and Node.js's built-in test
 runner for the browser session client. It does not need a Supabase project,
 production credentials, real accounts, or GPS data; Supabase and HTTP
 operations are mocked. The pytest setup compiles `core\emergency.c` to a
-temporary native library and removes it after the run.
+temporary native library, smoke-tests it, and removes it after the run. On
+Windows, the compiled library is smoke-tested in a child process (to allow
+temporary-file cleanup); integration tests load the process-compatible
+`core\emergency64.dll`. CI runs the C source build and tests on Ubuntu.
 
 Install a C compiler and Node.js before running tests:
 
 - Windows: install MinGW-w64 and ensure `gcc` is on `PATH`; install Node.js 20
-  or newer.
+  or newer. The existing DLL must match your Python process architecture.
 - Ubuntu/Debian: `sudo apt-get install build-essential`; install Node.js 20 or
   newer.
 - macOS: install the Xcode Command Line Tools with `xcode-select --install`;
