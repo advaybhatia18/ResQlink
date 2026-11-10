@@ -31,7 +31,7 @@ jobs:
       - name: Prepare static site
         run: |
           mkdir _site
-          cp *.html api-config.js _site/
+          cp *.html api-config.js emergency-submit.js _site/
           touch _site/.nojekyll
 
       - name: Upload site

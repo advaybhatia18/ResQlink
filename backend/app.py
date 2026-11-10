@@ -3,14 +3,16 @@ import re
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from httpx import HTTPError
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from supabase_auth.errors import AuthApiError
+from starlette.responses import JSONResponse
 
 from emergency_engine import process_emergency
+from location import MAX_LOCATION_ACCURACY_METERS, validate_location
 from storage import (
     get_alerts,
     get_auth_client,
@@ -52,8 +54,50 @@ class EmergencyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     severity: int = Field(strict=True, ge=1, le=5)
-    latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
-    longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
+    longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
+    location_accuracy_m: float | None = Field(
+        default=None,
+        ge=0,
+        allow_inf_nan=False
+    )
+    location_accuracy_confirmed: bool = False
+
+    @field_validator("latitude", "longitude", "location_accuracy_m", mode="before")
+    @classmethod
+    def reject_boolean_or_non_numeric_location(cls, value):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+        ):
+            raise ValueError("Location values must be numbers")
+        return value
+
+    @field_validator("location_accuracy_confirmed", mode="before")
+    @classmethod
+    def require_boolean_accuracy_confirmation(cls, value):
+        if not isinstance(value, bool):
+            raise ValueError("Location accuracy confirmation must be boolean")
+        return value
+
+    @model_validator(mode="after")
+    def validate_location_fields(self):
+        try:
+            validate_location(self.latitude, self.longitude)
+        except ValueError as error:
+            raise ValueError(str(error)) from error
+        if self.latitude is None and self.location_accuracy_m is not None:
+            raise ValueError("Location accuracy requires coordinates")
+        if self.latitude is None and self.location_accuracy_confirmed:
+            raise ValueError("Location accuracy confirmation requires coordinates")
+        if (
+            self.location_accuracy_m is not None
+            and self.location_accuracy_m > MAX_LOCATION_ACCURACY_METERS
+            and not self.location_accuracy_confirmed
+        ):
+            raise ValueError(
+                "Imprecise coordinates require explicit user confirmation"
+            )
+        return self
 
 
 class RegisterRequest(BaseModel):
@@ -148,18 +192,44 @@ def home():
 @app.post("/emergency")
 def create_emergency(
     request: EmergencyRequest,
-    current_user: dict = Depends(get_authenticated_user)
+    current_user: dict = Depends(get_authenticated_user),
+    idempotency_key: str = Header(alias="Idempotency-Key")
 ):
-    result = process_emergency(request.severity)
-    result["latitude"] = request.latitude
-    result["longitude"] = request.longitude
+    try:
+        normalized_location = validate_location(request.latitude, request.longitude)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
-    alert_id = save_alert(result, current_user["id"])
-    return {
-        "message": "Emergency saved successfully",
-        "alert_id": alert_id,
-        "emergency": result
-    }
+    result = process_emergency(request.severity)
+    result["latitude"] = (
+        normalized_location["latitude"] if normalized_location else None
+    )
+    result["longitude"] = (
+        normalized_location["longitude"] if normalized_location else None
+    )
+    result["location_accuracy_m"] = request.location_accuracy_m
+
+    alert_id, duplicate, status = save_alert(
+        result,
+        current_user["id"],
+        idempotency_key
+    )
+    return JSONResponse(
+        status_code=200 if duplicate else 201,
+        content={
+            "message": (
+                "This alert was already recorded in the ResQlink demo."
+                if duplicate
+                else "Alert recorded in the ResQlink demo."
+            ),
+            "alert_id": alert_id,
+            "status": status,
+            "submission_status": (
+                "already_submitted" if duplicate else "submitted"
+            ),
+            "duplicate": duplicate,
+        }
+    )
 
 
 @app.get("/emergencies", dependencies=[Depends(require_admin)])

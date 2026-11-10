@@ -7,9 +7,10 @@ priorities. The frontend is made of static HTML pages.
 
 ## Features
 
-- Submit an emergency alert with severity and browser-provided GPS coordinates.
-- View alerts on the command-centre dashboard and resolve them with an admin
-  token.
+- Submit an emergency alert with severity and browser-provided GPS coordinates,
+  or deliberately submit without location when GPS is unavailable.
+- View alerts on the command-centre dashboard and resolve them with an
+  administrator account.
 - Register and sign in to a user account.
 - Store alerts and user profiles in Supabase Postgres.
 - Authenticate accounts and API access tokens with Supabase Auth.
@@ -20,6 +21,7 @@ priorities. The frontend is made of static HTML pages.
 .
 ├── index.html, login.html, register.html, dashboard.html
 ├── api-config.js            # Frontend API URL; safe to publish
+├── emergency-submit.js      # Authenticated SOS and safe retry flow
 ├── backend/                 # FastAPI API and Supabase access
 ├── core/                    # C engine source and local Windows DLL
 ├── supabase/schema.sql      # Supabase tables and signup trigger
@@ -53,11 +55,15 @@ In the Supabase SQL Editor, run [`supabase/schema.sql`](./supabase/schema.sql)
 to create the profiles and emergencies tables and the profile-on-signup
 trigger. This also enables Row Level Security and grants table access only to
 the backend and authenticated users according to ownership policies. For an
-existing project, first run
-[`supabase/migrations/20261110_emergency_user_ownership.sql`](./supabase/migrations/20261110_emergency_user_ownership.sql).
-It only copies a previously recorded `created_by` profile when that profile
-still exists; other historical rows stay unowned and are never assigned
-speculatively.
+existing project, apply
+[`supabase/migrations/20261110_emergency_user_ownership.sql`](./supabase/migrations/20261110_emergency_user_ownership.sql)
+if ownership has not already been set up, then apply
+[`supabase/migrations/20261110163248_emergency_submission_safety.sql`](./supabase/migrations/20261110163248_emergency_submission_safety.sql).
+The ownership migration only copies a previously recorded `created_by` profile
+when that profile still exists; other historical rows stay unowned and are
+never assigned speculatively. The submission migration allows intentional
+no-location alerts and adds retry-key/accuracy fields without deleting or
+changing existing records.
 
 Review unowned historical alerts with:
 
@@ -144,6 +150,40 @@ file. API authorization uses Supabase access tokens and database profile roles.
 User registration and sign-in use Supabase Auth; the API validates Supabase
 access tokens and reads profile roles from Postgres.
 
+## Emergency submission flow
+
+1. A signed-in user presses **SOS** and selects a severity from 1 to 5. The
+   browser requests a fresh location, with a 15-second GPS timeout.
+2. The browser checks that latitude, longitude, and reported accuracy are
+   finite numbers in range. If the reported accuracy is worse than 100 metres,
+   the user can retry GPS, explicitly accept the approximate location, or
+   choose the no-location option. The API also requires a confirmation flag
+   for locations reported as worse than 100 metres.
+3. If GPS is denied, unavailable, unsupported, or times out, the page does not
+   invent coordinates or send an alert automatically. The user can retry or
+   deliberately submit with both coordinates and accuracy set to `null`.
+4. Before sending, the browser saves the exact payload and a random
+   idempotency key in tab-scoped session storage. It sends an authenticated
+   `POST /emergency` request with a 12-second timeout. If the result is
+   uncertain, pressing **Retry same alert** resends the same payload and key.
+   The backend enforces uniqueness per authenticated user, so a retry returns
+   the original alert instead of inserting a duplicate. A key reused with
+   different alert data is rejected.
+5. The API validates the token, severity, paired coordinates, coordinate
+   ranges, and reported accuracy. It calculates the label and priority with
+   the existing C emergency engine, then stores the alert with the verified
+   profile ID, coordinates (if supplied), reported accuracy, and idempotency
+   key in Supabase. The service-role key remains backend-only.
+6. A new record returns HTTP `201`; a recognized retry returns HTTP `200`.
+   Both responses include the alert ID, record status, and submission status.
+   An expired session retains the pending request for retry after sign-in.
+   Database or network errors are shown as unconfirmed, not successful.
+
+The saved pending payload may contain precise coordinates and remains in
+session storage only until the server confirms the alert or the tab is closed.
+ResQlink is a demo/prototype; submitting or storing an alert does **not** contact
+emergency services. Use local emergency channels for real emergencies.
+
 ## API endpoints
 
 | Method | Path | Purpose |
@@ -176,5 +216,7 @@ access tokens and reads profile roles from Postgres.
   `public.profiles.role`.
 - Run authorization tests with
   `python -m unittest discover -s backend -p "test_auth.py"`.
+- Run the backend regression suite with
+  `python -m unittest discover -s backend -p "test_*.py"`.
 - Existing accounts and alerts in `database/resqlink.db` are not migrated
   automatically; export/import them separately if they need to be retained.

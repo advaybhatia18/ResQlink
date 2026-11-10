@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from supabase_auth.errors import AuthApiError
@@ -31,7 +32,10 @@ class AuthorizationTests(unittest.TestCase):
             side_effect=self.get_profile
         )
         self.alerts_patch = patch("app.get_alerts", return_value=[])
-        self.save_alert_patch = patch("app.save_alert", return_value=27)
+        self.save_alert_patch = patch(
+            "app.save_alert",
+            return_value=(27, False, "ACTIVE")
+        )
         self.resolve_alert_patch = patch("app.resolve_alert", return_value=True)
         self.process_emergency_patch = patch(
             "app.process_emergency",
@@ -73,7 +77,10 @@ class AuthorizationTests(unittest.TestCase):
 
     @staticmethod
     def auth(token):
-        return {"Authorization": f"Bearer {token}"}
+        return {
+            "Authorization": f"Bearer {token}",
+            "Idempotency-Key": "42542a3c-a73d-455f-9388-893fce868a47",
+        }
 
     def test_missing_token_is_401_for_admin_operations(self):
         self.assertEqual(self.client.get("/emergencies").status_code, 401)
@@ -114,15 +121,23 @@ class AuthorizationTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["alert_id"], 27)
+        self.assertEqual(response.json()["status"], "ACTIVE")
+        self.assertEqual(response.json()["submission_status"], "submitted")
+        self.assertNotIn("latitude", response.json())
+        self.assertNotIn("longitude", response.json())
         account = self.client.get("/me", headers=self.auth("user-token"))
         self.assertEqual(account.status_code, 200)
         self.assertEqual(account.json()["role"], "USER")
         resqlink_app.save_alert.assert_called_once()
-        saved_alert, owner_id = resqlink_app.save_alert.call_args.args
+        saved_alert, owner_id, request_key = resqlink_app.save_alert.call_args.args
         self.assertEqual(owner_id, USER_ID)
         self.assertEqual(saved_alert["severity"], 3)
+        self.assertEqual(
+            request_key,
+            "42542a3c-a73d-455f-9388-893fce868a47"
+        )
 
     def test_valid_admin_can_read_alerts(self):
         response = self.client.get(
@@ -241,6 +256,7 @@ class AuthorizationTests(unittest.TestCase):
             (6, 12.9, 77.5),
             (3, 91, 77.5),
             (3, 12.9, 181),
+            (3, None, 77.5),
         ):
             response = self.client.post(
                 "/emergency",
@@ -252,6 +268,145 @@ class AuthorizationTests(unittest.TestCase):
                 }
             )
             self.assertEqual(response.status_code, 422)
+        resqlink_app.save_alert.assert_not_called()
+
+    def test_accuracy_must_be_finite_nonnegative_and_have_coordinates(self):
+        headers = self.auth("user-token")
+        for payload in (
+            {
+                "severity": 3,
+                "latitude": 12.9,
+                "longitude": 77.5,
+                "location_accuracy_m": -1,
+            },
+            {
+                "severity": 3,
+                "latitude": None,
+                "longitude": None,
+                "location_accuracy_m": 5,
+            },
+            {
+                "severity": 3,
+                "latitude": True,
+                "longitude": 77.5,
+            },
+        ):
+            response = self.client.post(
+                "/emergency",
+                headers=headers,
+                json=payload
+            )
+            self.assertEqual(response.status_code, 422)
+        resqlink_app.save_alert.assert_not_called()
+
+    def test_inaccurate_coordinates_require_explicit_confirmation(self):
+        headers = self.auth("user-token")
+        payload = {
+            "severity": 3,
+            "latitude": 12.9,
+            "longitude": 77.5,
+            "location_accuracy_m": 250,
+        }
+
+        rejected = self.client.post(
+            "/emergency",
+            headers=headers,
+            json=payload
+        )
+        self.assertEqual(rejected.status_code, 422)
+        resqlink_app.save_alert.assert_not_called()
+
+        payload["location_accuracy_confirmed"] = True
+        accepted = self.client.post(
+            "/emergency",
+            headers=headers,
+            json=payload
+        )
+        self.assertEqual(accepted.status_code, 201)
+        self.assertEqual(
+            resqlink_app.save_alert.call_args.args[0]["location_accuracy_m"],
+            250
+        )
+
+    def test_gps_unavailable_requires_explicit_null_location_fallback(self):
+        response = self.client.post(
+            "/emergency",
+            headers=self.auth("user-token"),
+            json={
+                "severity": 5,
+                "latitude": None,
+                "longitude": None,
+                "location_accuracy_m": None,
+            }
+        )
+
+        self.assertEqual(response.status_code, 201)
+        saved_alert = resqlink_app.save_alert.call_args.args[0]
+        self.assertIsNone(saved_alert["latitude"])
+        self.assertIsNone(saved_alert["longitude"])
+        self.assertIsNone(saved_alert["location_accuracy_m"])
+
+    def test_duplicate_submission_returns_original_alert(self):
+        resqlink_app.save_alert.side_effect = [
+            (27, False, "ACTIVE"),
+            (27, True, "ACTIVE"),
+        ]
+        payload = {
+            "severity": 3,
+            "latitude": 12.9,
+            "longitude": 77.5,
+            "location_accuracy_m": 18.0,
+        }
+
+        first = self.client.post(
+            "/emergency",
+            headers=self.auth("user-token"),
+            json=payload
+        )
+        second = self.client.post(
+            "/emergency",
+            headers=self.auth("user-token"),
+            json=payload
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["alert_id"], first.json()["alert_id"])
+        self.assertEqual(second.json()["submission_status"], "already_submitted")
+        self.assertTrue(second.json()["duplicate"])
+
+    def test_expired_session_is_rejected_without_saving(self):
+        response = self.client.post(
+            "/emergency",
+            headers=self.auth("invalid"),
+            json={"severity": 3, "latitude": 12.9, "longitude": 77.5}
+        )
+
+        self.assertEqual(response.status_code, 401)
+        resqlink_app.save_alert.assert_not_called()
+
+    def test_database_failure_returns_service_unavailable(self):
+        resqlink_app.save_alert.side_effect = HTTPException(
+            status_code=503,
+            detail="Could not save the emergency to Supabase"
+        )
+        response = self.client.post(
+            "/emergency",
+            headers=self.auth("user-token"),
+            json={"severity": 3, "latitude": 12.9, "longitude": 77.5}
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("Could not save", response.json()["detail"])
+
+    def test_missing_idempotency_key_is_rejected(self):
+        response = self.client.post(
+            "/emergency",
+            headers={"Authorization": "Bearer user-token"},
+            json={"severity": 3, "latitude": 12.9, "longitude": 77.5}
+        )
+
+        self.assertEqual(response.status_code, 422)
         resqlink_app.save_alert.assert_not_called()
 
     def test_non_finite_coordinates_are_rejected(self):

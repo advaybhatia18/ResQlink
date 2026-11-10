@@ -1,6 +1,8 @@
 
 import math
 
+MAX_LOCATION_ACCURACY_METERS = 100
+
 
 def validate_location(latitude, longitude):
     """

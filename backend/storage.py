@@ -88,7 +88,67 @@ def get_user_profile(user_id: str) -> dict | None:
     return profile
 
 
-def save_alert(emergency: dict, user_id: str) -> int:
+def _find_idempotent_alert(user_id: str, idempotency_key: str) -> dict | None:
+    try:
+        response = (
+            get_database_client()
+            .table("emergencies")
+            .select(
+                "id, user_id, idempotency_key, severity, latitude, longitude, "
+                "location_accuracy_m, status"
+            )
+            .eq("user_id", user_id)
+            .eq("idempotency_key", idempotency_key)
+            .limit(1)
+            .execute()
+        )
+    except (APIError, HTTPError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not verify the emergency submission status"
+        ) from error
+
+    if not isinstance(response.data, list) or len(response.data) > 1:
+        raise HTTPException(
+            status_code=503,
+            detail="Supabase returned an invalid emergency submission status"
+        )
+    if not response.data:
+        return None
+
+    row = response.data[0]
+    if (
+        not isinstance(row, dict)
+        or type(row.get("id")) is not int
+        or row["id"] < 1
+        or row.get("user_id") != user_id
+        or row.get("idempotency_key") != idempotency_key
+        or row.get("status") not in {"ACTIVE", "RESOLVED"}
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Supabase returned an invalid emergency submission status"
+        )
+    return row
+
+
+def _matches_emergency(row: dict, emergency: dict) -> bool:
+    return all(
+        row.get(field) == emergency.get(field)
+        for field in (
+            "severity",
+            "latitude",
+            "longitude",
+            "location_accuracy_m",
+        )
+    )
+
+
+def save_alert(
+    emergency: dict,
+    user_id: str,
+    idempotency_key: str
+) -> tuple[int, bool, str]:
     if not isinstance(emergency, dict):
         raise HTTPException(status_code=422, detail="Invalid emergency record")
     if not isinstance(user_id, str):
@@ -99,6 +159,16 @@ def save_alert(emergency: dict, user_id: str) -> int:
         raise HTTPException(
             status_code=401,
             detail="Invalid authenticated user"
+        ) from error
+
+    if not isinstance(idempotency_key, str):
+        raise HTTPException(status_code=422, detail="Invalid idempotency key")
+    try:
+        idempotency_key = str(UUID(idempotency_key))
+    except (ValueError, TypeError, AttributeError) as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid idempotency key"
         ) from error
 
     severity = emergency.get("severity")
@@ -120,33 +190,73 @@ def save_alert(emergency: dict, user_id: str) -> int:
 
     latitude = emergency.get("latitude")
     longitude = emergency.get("longitude")
-    if (
-        isinstance(latitude, bool)
-        or isinstance(longitude, bool)
-        or not isinstance(latitude, (int, float))
-        or not isinstance(longitude, (int, float))
-        or not math.isfinite(latitude)
-        or not math.isfinite(longitude)
-        or not -90 <= latitude <= 90
-        or not -180 <= longitude <= 180
-    ):
+    coordinates_valid = (
+        latitude is None
+        and longitude is None
+    ) or (
+        not isinstance(latitude, bool)
+        and isinstance(latitude, (int, float))
+        and math.isfinite(latitude)
+        and -90 <= latitude <= 90
+        and not isinstance(longitude, bool)
+        and isinstance(longitude, (int, float))
+        and math.isfinite(longitude)
+        and -180 <= longitude <= 180
+    )
+    accuracy = emergency.get("location_accuracy_m")
+    accuracy_valid = (
+        accuracy is None
+        or (
+            latitude is not None
+            and not isinstance(accuracy, bool)
+            and isinstance(accuracy, (int, float))
+            and math.isfinite(accuracy)
+            and accuracy >= 0
+        )
+    )
+    if not coordinates_valid or not accuracy_valid:
         raise HTTPException(status_code=422, detail="Invalid emergency coordinates")
 
+    existing = _find_idempotent_alert(user_id, idempotency_key)
+    if existing is not None:
+        if not _matches_emergency(existing, emergency):
+            raise HTTPException(
+                status_code=409,
+                detail="Idempotency key was already used for a different alert"
+            )
+        return existing["id"], True, existing["status"]
+
+    insert_data = {
+        "severity": severity,
+        "label": emergency["label"],
+        "priority": emergency["priority"],
+        "latitude": float(latitude) if latitude is not None else None,
+        "longitude": float(longitude) if longitude is not None else None,
+        "location_accuracy_m": float(accuracy) if accuracy is not None else None,
+        "user_id": user_id,
+        "idempotency_key": idempotency_key,
+    }
     try:
         response = (
             get_database_client()
             .table("emergencies")
-            .insert({
-                "severity": severity,
-                "label": emergency["label"],
-                "priority": emergency["priority"],
-                "latitude": float(latitude),
-                "longitude": float(longitude),
-                "user_id": user_id,
-            })
+            .insert(insert_data)
             .execute()
         )
-    except (APIError, HTTPError) as error:
+    except APIError as error:
+        existing = _find_idempotent_alert(user_id, idempotency_key)
+        if existing is not None:
+            if not _matches_emergency(existing, emergency):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Idempotency key was already used for a different alert"
+                ) from error
+            return existing["id"], True, existing["status"]
+        raise HTTPException(
+            status_code=503,
+            detail="Could not save the emergency to Supabase"
+        ) from error
+    except HTTPError as error:
         raise HTTPException(
             status_code=503,
             detail="Could not save the emergency to Supabase"
@@ -163,12 +273,14 @@ def save_alert(emergency: dict, user_id: str) -> int:
         or type(row.get("id")) is not int
         or row["id"] < 1
         or row.get("user_id") != user_id
+        or row.get("idempotency_key") != idempotency_key
+        or row.get("status") != "ACTIVE"
     ):
         raise HTTPException(
             status_code=503,
             detail="Supabase returned an invalid saved emergency"
         )
-    return row["id"]
+    return row["id"], False, row["status"]
 
 
 def get_alerts(user_id: str | None = None) -> list[dict]:

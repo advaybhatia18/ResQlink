@@ -93,6 +93,33 @@
             overflow-wrap: anywhere;
         }
 
+        .location-actions {
+            display: grid;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .location-actions button,
+        .sign-in-link {
+            padding: 10px 14px;
+            border: 0;
+            border-radius: 8px;
+            background: #334155;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .sign-in-link {
+            display: inline-block;
+            margin-top: 12px;
+            text-decoration: none;
+        }
+
+        [hidden] {
+            display: none !important;
+        }
+
         #status {
             margin-top: 20px;
             min-height: 45px;
@@ -125,7 +152,7 @@
             <option value="5" selected>5 - Critical</option>
         </select>
 
-        <button class="sos-button" id="sosButton" onclick="sendAlert()">
+        <button class="sos-button" id="sosButton">
             SOS
         </button>
 
@@ -133,9 +160,26 @@
             <strong>GPS Location</strong>
             <p id="latitude">Latitude: Not detected</p>
             <p id="longitude">Longitude: Not detected</p>
+            <p id="locationAccuracy">Accuracy: Not measured</p>
         </div>
 
-        <p id="status">Ready for a test alert.</p>
+        <div class="location-actions" id="locationActions" hidden>
+            <p id="locationMessage" aria-live="polite"></p>
+            <button type="button" id="retryLocationButton">Try GPS again</button>
+            <button type="button" id="useApproximateLocationButton" hidden>
+                Submit with this approximate location
+            </button>
+            <button type="button" id="submitWithoutLocationButton">
+                Deliberately submit without location
+            </button>
+        </div>
+
+        <p id="status" role="status" aria-live="polite">
+            Ready to submit a ResQlink demo alert.
+        </p>
+        <a id="signInLink" class="sign-in-link" href="login.html" hidden>
+            Sign in to submit or retry this alert
+        </a>
 
         <p class="note">
             DEMO PROJECT — This application does not contact real emergency services.
@@ -144,7 +188,7 @@
     </div>
 
     <script src="api-config.js"></script>
-    <script>
+    <script type="text/plain">
         async function sendAlert() {
 
             const button = document.getElementById("sosButton");
@@ -242,6 +286,7 @@
             );
         }
     </script>
+    <script src="emergency-submit.js"></script>
 
 </body>
 </html>
