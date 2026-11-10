@@ -3,6 +3,7 @@ import math
 from functools import lru_cache
 from uuid import UUID
 
+import httpx
 from fastapi import HTTPException
 from httpx import HTTPError
 from postgrest.exceptions import APIError
@@ -47,6 +48,71 @@ def get_database_client() -> Client:
 def get_auth_client() -> Client:
     # Keep Auth sessions isolated per request; the database client never signs in.
     return create_client(_supabase_url(), _supabase_anon_key())
+
+
+def update_supabase_password(access_token: str, password: str) -> None:
+    try:
+        response = httpx.put(
+            f"{_supabase_url().rstrip('/')}/auth/v1/user",
+            headers={
+                "apikey": _supabase_anon_key(),
+                "Authorization": f"Bearer {access_token}",
+            },
+            json={"password": password},
+            timeout=10.0,
+        )
+    except HTTPError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Supabase password update is temporarily unavailable"
+        ) from error
+
+    if response.is_success:
+        return
+    if response.status_code in (400, 422):
+        raise HTTPException(
+            status_code=400,
+            detail="Supabase rejected the new password"
+        )
+    if response.status_code in (401, 403):
+        raise HTTPException(
+            status_code=401,
+            detail="The password reset link is invalid or expired"
+        )
+    raise HTTPException(
+        status_code=503,
+        detail="Supabase password update is temporarily unavailable"
+    )
+
+
+def revoke_supabase_session(access_token: str) -> None:
+    try:
+        response = httpx.post(
+            f"{_supabase_url().rstrip('/')}/auth/v1/logout",
+            params={"scope": "local"},
+            headers={
+                "apikey": _supabase_anon_key(),
+                "Authorization": f"Bearer {access_token}",
+            },
+            timeout=10.0,
+        )
+    except HTTPError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Supabase could not revoke this session"
+        ) from error
+
+    if response.is_success:
+        return
+    if response.status_code in (401, 403):
+        raise HTTPException(
+            status_code=401,
+            detail="The session is invalid or expired"
+        )
+    raise HTTPException(
+        status_code=503,
+        detail="Supabase could not revoke this session"
+    )
 
 
 def get_user_profile(user_id: str) -> dict | None:

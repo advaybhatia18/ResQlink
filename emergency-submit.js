@@ -694,11 +694,16 @@
 
     async function signOut() {
         try {
-            window.ResqlinkApi.clearSession();
-            setAccount(null);
-            window.location.href = "login.html";
+            await window.ResqlinkAuth.logout();
+            window.location.replace("login.html");
         } catch (error) {
-            setProgress("error", error.message, "SIGN OUT ERROR");
+            try {
+                window.ResqlinkAuth.clearSession();
+            } catch (clearError) {
+                setProgress("error", clearError.message, "SIGN OUT ERROR");
+                return;
+            }
+            window.location.replace("login.html?logout=local");
         }
     }
 

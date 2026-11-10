@@ -18,7 +18,9 @@ from storage import (
     get_auth_client,
     get_user_profile,
     resolve_alert,
+    revoke_supabase_session,
     save_alert,
+    update_supabase_password,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -107,8 +109,16 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class PasswordRecoveryRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+
+
+class PasswordUpdateRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=128)
 
 
 def get_authenticated_user(
@@ -378,3 +388,90 @@ def get_my_account(current_user=Depends(get_authenticated_user)):
         "email": current_user["email"],
         "role": current_user["role"]
     }
+
+
+@app.post("/password-recovery", status_code=202)
+def request_password_recovery(request: PasswordRecoveryRequest):
+    email = request.email.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+
+    redirect_url = os.getenv("PASSWORD_RESET_REDIRECT_URL", "").strip()
+    if not redirect_url:
+        raise HTTPException(
+            status_code=503,
+            detail="Password recovery is not configured on this server"
+        )
+
+    try:
+        get_auth_client().auth.reset_password_email(
+            email,
+            options={"redirect_to": redirect_url}
+        )
+    except AuthApiError as error:
+        if error.code == "user_not_found":
+            pass
+        elif error.status == 429 or error.code in {
+            "over_request_rate_limit",
+            "over_email_send_rate_limit",
+        }:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many recovery requests. Wait a little and try again."
+            ) from error
+        if error.status >= 500:
+            raise HTTPException(
+                status_code=503,
+                detail="Password recovery is temporarily unavailable"
+            ) from error
+        if error.code != "user_not_found":
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Supabase rejected the recovery request. Check the "
+                    "password recovery redirect configuration."
+                )
+            ) from error
+    except HTTPError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Password recovery is temporarily unavailable"
+        ) from error
+
+    return {
+        "message": (
+            "If an account exists for that email, password recovery "
+            "instructions will be sent."
+        )
+    }
+
+
+@app.post("/password-update")
+def update_password(
+    request: PasswordUpdateRequest,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    _current_user=Depends(get_authenticated_user)
+):
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    update_supabase_password(credentials.credentials, request.password)
+    return {"message": "Password updated successfully"}
+
+
+@app.post("/logout")
+def logout(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    _current_user=Depends(get_authenticated_user)
+):
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    revoke_supabase_session(credentials.credentials)
+    return {"message": "Signed out"}

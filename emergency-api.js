@@ -28,6 +28,7 @@
 
     function getAccessToken() {
         try {
+            sessionStorage.removeItem(USER_KEY);
             return sessionStorage.getItem(TOKEN_KEY);
         } catch (error) {
             throw new ResqlinkApiError(

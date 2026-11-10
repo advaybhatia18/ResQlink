@@ -1,217 +1,81 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ResQlink | Create Account</title>
-
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    background: #101a25;
-    color: #f1eee7;
-    font-family: Manrope, sans-serif;
-    padding: 20px;
-}
-
-.card {
-    width: 100%;
-    max-width: 470px;
-    background: #172431;
-    border: 1px solid #344451;
-    padding: 42px;
-}
-
-.logo {
-    font-size: 25px;
-    font-weight: 800;
-    letter-spacing: -1px;
-    margin-bottom: 35px;
-}
-
-.logo span { color: #ff7045; }
-
-.tag {
-    color: #ff7045;
-    font-size: 11px;
-    letter-spacing: 2px;
-    margin-bottom: 12px;
-}
-
-h1 {
-    font-size: 30px;
-    letter-spacing: -1px;
-}
-
-.subtitle {
-    color: #8795a3;
-    font-size: 13px;
-    margin: 10px 0 30px;
-}
-
-label {
-    display: block;
-    font-size: 12px;
-    font-weight: 700;
-    margin: 19px 0 9px;
-}
-
-input {
-    width: 100%;
-    padding: 15px;
-    color: white;
-    background: #111d28;
-    border: 1px solid #344451;
-    outline: none;
-    font-family: inherit;
-}
-
-input:focus { border-color: #ff7045; }
-
-button {
-    width: 100%;
-    margin-top: 28px;
-    padding: 16px;
-    background: #ff7045;
-    color: #101a25;
-    border: none;
-    font-weight: 800;
-    cursor: pointer;
-    font-family: inherit;
-}
-
-button:hover { background: #ff8965; }
-
-button:disabled { opacity: .6; cursor: wait; }
-
-#message {
-    font-size: 12px;
-    margin-top: 16px;
-    line-height: 1.6;
-}
-
-.footer {
-    text-align: center;
-    color: #8795a3;
-    font-size: 12px;
-    margin-top: 28px;
-}
-
-a {
-    color: #ff7045;
-    text-decoration: none;
-}
-
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0a111c">
+    <title>ResQlink | Create account</title>
+    <link rel="stylesheet" href="auth.css">
 </head>
+<body class="auth-page">
+    <main class="auth-shell">
+        <aside class="auth-aside">
+            <a class="auth-brand" href="index.html" aria-label="ResQlink home">
+                <span class="auth-brand-mark" aria-hidden="true">R</span>
+                ResQ<span>link</span>
+            </a>
+            <div class="auth-aside-copy">
+                <p class="auth-kicker">Emergency assistance / create account</p>
+                <h1>Support starts with a <span>connection.</span></h1>
+                <p>Create a ResQlink account to access the emergency reporting prototype. Your profile is created through the existing Supabase signup workflow.</p>
+            </div>
+            <div class="auth-demo-note">
+                <strong>DEMO / PROTOTYPE</strong><br>
+                ResQlink does not contact real emergency services. For a real emergency, contact your local emergency number directly.
+            </div>
+        </aside>
 
-<body>
+        <section class="auth-panel" aria-labelledby="registerHeading">
+            <p class="auth-kicker">New member registration</p>
+            <h2 id="registerHeading">Create your account.</h2>
+            <p class="auth-subtitle">Use an email address you can access and choose a strong password.</p>
 
-<div class="card">
+            <form id="registerForm">
+                <div class="auth-field">
+                    <label for="name">Full name</label>
+                    <div class="auth-input-wrap">
+                        <input id="name" name="name" type="text" autocomplete="name"
+                            minlength="2" maxlength="100" placeholder="Enter your full name" required>
+                    </div>
+                </div>
+                <div class="auth-field">
+                    <label for="email">Email address</label>
+                    <div class="auth-input-wrap">
+                        <input id="email" name="email" type="email" autocomplete="email"
+                            inputmode="email" maxlength="254" placeholder="name@example.com" required>
+                    </div>
+                </div>
+                <div class="auth-field">
+                    <label for="password">Password</label>
+                    <div class="auth-input-wrap">
+                        <input id="password" name="password" type="password"
+                            autocomplete="new-password" minlength="8" maxlength="128"
+                            aria-describedby="passwordHint" placeholder="At least 8 characters" required>
+                        <button class="auth-toggle" type="button" data-password-toggle="password"
+                            aria-label="Show password" aria-pressed="false">Show</button>
+                    </div>
+                    <p class="auth-hint" id="passwordHint">Use at least 8 characters. Avoid reusing a password from another site.</p>
+                </div>
+                <div class="auth-field">
+                    <label for="confirmPassword">Confirm password</label>
+                    <div class="auth-input-wrap">
+                        <input id="confirmPassword" name="confirmPassword" type="password"
+                            autocomplete="new-password" minlength="8" maxlength="128"
+                            placeholder="Enter the same password again" required>
+                        <button class="auth-toggle" type="button" data-password-toggle="confirmPassword"
+                            aria-label="Show confirmation password" aria-pressed="false">Show</button>
+                    </div>
+                </div>
+                <button class="auth-submit" id="registerButton" type="submit">Create account</button>
+                <p class="auth-message" id="registerMessage" role="status" aria-live="polite"></p>
+            </form>
 
-    <div class="logo">RESQ<span>LINK</span></div>
-
-    <div class="tag">NEW MEMBER REGISTRATION</div>
-
-    <h1>Create your account.</h1>
-
-    <p class="subtitle">
-        Join the ResQlink emergency response network.
-    </p>
-
-    <form id="registerForm">
-
-        <label for="name">FULL NAME</label>
-        <input id="name" type="text"
-            placeholder="Enter your full name"
-            autocomplete="name" required>
-
-        <label for="email">EMAIL ADDRESS</label>
-        <input id="email" type="email"
-            placeholder="name@example.com"
-            autocomplete="email" required>
-
-        <label for="password">PASSWORD</label>
-        <input id="password" type="password"
-            placeholder="Create a password"
-            autocomplete="new-password"
-            minlength="8" required>
-
-        <button type="submit" id="registerButton">
-            CREATE ACCOUNT →
-        </button>
-
-        <p id="message" role="status" aria-live="polite"></p>
-
-    </form>
-
-    <div class="footer">
-        Already registered?
-        <a href="login.html">Sign in</a>
-    </div>
-
-</div>
-
-<script src="api-config.js"></script>
-<script>
-const API_URL = window.RESQLINK_API_URL;
-
-const form = document.getElementById("registerForm");
-const message = document.getElementById("message");
-const button = document.getElementById("registerButton");
-
-form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    const name = document.getElementById("name").value.trim();
-    const email = document.getElementById("email").value.trim();
-    const password = document.getElementById("password").value;
-
-    button.disabled = true;
-    button.textContent = "CREATING ACCOUNT...";
-    message.textContent = "";
-
-    try {
-        const response = await fetch(`${API_URL}/register`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ name, email, password })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.detail || "Registration failed.");
-        }
-
-        message.style.color = "#69d6a1";
-        message.textContent = "Account created successfully! Redirecting to login...";
-
-        setTimeout(() => {
-            window.location.href = "login.html";
-        }, 1500);
-
-    } catch (error) {
-        message.style.color = "#ff806e";
-        message.textContent =
-            error.message === "Failed to fetch"
-            ? "Cannot connect to ResQlink API. Check that the backend is running."
-            : error.message;
-    } finally {
-        button.disabled = false;
-        button.textContent = "CREATE ACCOUNT →";
-    }
-});
-</script>
-
+            <hr class="auth-divider">
+            <p class="auth-footer">Already registered? <a href="login.html">Sign in</a></p>
+        </section>
+    </main>
+    <script src="api-config.js"></script>
+    <script src="auth-session.js"></script>
+    <script src="auth-pages.js"></script>
 </body>
 </html>

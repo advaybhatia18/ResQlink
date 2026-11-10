@@ -12,6 +12,8 @@ priorities. The frontend is made of static HTML pages.
 - View alerts on the command-centre dashboard and resolve them with an
   administrator account.
 - Register and sign in to a user account.
+- Recover and reset a password through Supabase Auth.
+- Verify sessions on protected pages and revoke sessions when signing out.
 - Store alerts and user profiles in Supabase Postgres.
 - Authenticate accounts and API access tokens with Supabase Auth.
 
@@ -19,11 +21,14 @@ priorities. The frontend is made of static HTML pages.
 
 ```text
 .
-├── index.html, login.html, register.html, dashboard.html
+├── index.html, login.html, register.html, password-reset.html, dashboard.html
 ├── api-config.js            # Frontend API URL; safe to publish
 ├── emergency.css            # Mobile-first emergency page styles
 ├── emergency-api.js         # Authenticated API/session integration
 ├── emergency-submit.js      # GPS, submission states, and safe retries
+├── auth.css                 # Shared sign-in, registration, and recovery styles
+├── auth-session.js          # Tab-scoped token handling and API session checks
+├── auth-pages.js            # Login, registration, and recovery form behavior
 ├── backend/                 # FastAPI API and Supabase access
 ├── core/                    # C engine source and local Windows DLL
 ├── supabase/schema.sql      # Supabase tables and signup trigger
@@ -87,6 +92,13 @@ email confirmation can be configured under
 **Authentication > Providers > Email** in the Supabase dashboard; when enabled,
 users must confirm their email before signing in.
 
+Set `PASSWORD_RESET_REDIRECT_URL` in `.env` to the absolute URL of
+`password-reset.html` served locally (the example in `.env.example` uses Live
+Server). Add both the local URL and deployed Pages URL to **Authentication >
+URL Configuration > Redirect URLs**. Configure Supabase Auth email delivery
+for recovery emails; without a valid redirect allowlist and email provider,
+password recovery cannot complete.
+
 To grant responder access, first register the account normally, then promote
 its profile using the Supabase SQL Editor and that account's Auth user UUID:
 
@@ -132,8 +144,11 @@ open `index.html`. The other pages are `login.html`, `register.html`, and
 
 1. Create a new Render Blueprint and select this repository. Render reads
    `render.yaml`; the blueprint compiles the C emergency engine for Linux.
-2. Set `SUPABASE_URL`, `SUPABASE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` in the
-   Render dashboard when prompted. Keep the service-role key private, and
+2. Set `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and
+   `PASSWORD_RESET_REDIRECT_URL` in the Render dashboard when prompted. Set
+   the last value to the absolute URL
+   `https://advaybhatia18.github.io/ResQlink/password-reset.html` (adjust for a
+   custom Pages domain). Keep the service-role key private, and
    remove any old `RESQLINK_ADMIN_TOKEN` setting; it is no longer used.
 3. Set `FRONTEND_ORIGINS` to the exact origin of your Pages site, for example
    `https://advaybhatia18.github.io`. Origins have no path or trailing slash.
@@ -145,12 +160,27 @@ The configured Supabase project must have the tables and signup trigger from
 [`supabase/schema.sql`](./supabase/schema.sql). For a custom Pages domain,
 update `FRONTEND_ORIGINS` in Render to match its `https://` origin.
 
+For local development, set `PASSWORD_RESET_REDIRECT_URL` in `.env` to the
+absolute Live Server URL, for example
+`http://127.0.0.1:5500/password-reset.html`. Add that exact URL, along with the
+deployed reset-page URL, to **Supabase Dashboard > Authentication > URL
+Configuration > Redirect URLs**. Password recovery requires Supabase Auth
+email delivery to be configured; the API does not reveal whether an email
+address is registered.
+
 GitHub Pages cannot serve Python, run the C engine, or hold backend secrets.
 Never put Supabase service-role keys in `api-config.js` or any other frontend
 file. API authorization uses Supabase access tokens and database profile roles.
 
 User registration and sign-in use Supabase Auth; the API validates Supabase
 access tokens and reads profile roles from Postgres.
+
+Only the access token is kept in tab-scoped `sessionStorage`; passwords and
+profile/role data are not cached there. Protected pages verify the token using
+`GET /me`, and the backend independently authorizes every protected operation.
+Sign out attempts to revoke the current Supabase session and always clears the
+local tab session. If the network is unavailable, the UI explains that
+server-side revocation could not be confirmed.
 
 ## Emergency submission flow
 
@@ -198,6 +228,9 @@ emergency services. Use local emergency channels for real emergencies.
 | `POST` | `/register` | Create a user account |
 | `POST` | `/login` | Sign in |
 | `GET` | `/me` | Get the signed-in user's account |
+| `POST` | `/password-recovery` | Request a Supabase password recovery email |
+| `POST` | `/password-update` | Update the signed-in user's password using a valid Supabase access token |
+| `POST` | `/logout` | Revoke the current Supabase session |
 
 ## Notes
 
@@ -213,6 +246,10 @@ emergency services. Use local emergency channels for real emergencies.
   every deployment and do not use development settings for a public service.
 - The default frontend API URL is for local development; point
   `api-config.js` to the deployed API before using the GitHub Pages site.
+- Reset links are sent to the configured `PASSWORD_RESET_REDIRECT_URL`, which
+  must be allowlisted in Supabase Auth settings. The recovery access token is
+  read from the URL fragment, removed from browser history, used only in
+  memory, and never written to session storage.
 - Remove the obsolete `RESQLINK_ADMIN_TOKEN` variable from local or hosting
   environment settings. Administrator permissions now come from
   `public.profiles.role`.

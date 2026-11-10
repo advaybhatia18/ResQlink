@@ -628,7 +628,8 @@
                 <div class="topbar-right">
                     <div class="system-pill"><span class="status-dot" id="apiDot"></span><span id="apiStatus">Connecting to API</span></div>
                     <div class="clock-pill"><span aria-hidden="true">◷</span><span id="liveClock">--:--:--</span></div>
-                    <button class="button" id="refreshButton" type="button">↻ Refresh alerts</button>
+                    <button class="button secondary" id="logoutButton" type="button">Sign out</button>
+                    <button class="button" id="refreshButton" type="button" disabled>↻ Refresh alerts</button>
                 </div>
             </header>
 
@@ -718,7 +719,7 @@
                         <h3>Supabase account authorization</h3>
                         <p>Sign in with your ResQlink account. The API checks your Supabase identity and database profile role before returning alert locations or allowing resolution.</p>
                     </div>
-                    <a class="button" href="login.html">Sign in</a>
+                    <a class="button" href="login.html?next=dashboard.html">Sign in</a>
                     <p class="admin-status" id="adminStatus" role="status" aria-live="polite">Checking administrator access…</p>
                 </div>
             </section>
@@ -731,11 +732,12 @@
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
     <script src="api-config.js"></script>
+    <script src="auth-session.js"></script>
     <script>
         "use strict";
 
         const API_BASE = window.RESQLINK_API_URL;
-        const ACCESS_TOKEN_KEY = "resqlink_token";
+        const auth = window.ResqlinkAuth;
         const REFRESH_INTERVAL_MS = 10000;
 
         const elements = {
@@ -753,7 +755,8 @@
             refreshButton: document.getElementById("refreshButton"),
             fitMapButton: document.getElementById("fitMapButton"),
             adminStatus: document.getElementById("adminStatus"),
-            liveClock: document.getElementById("liveClock")
+            liveClock: document.getElementById("liveClock"),
+            logoutButton: document.getElementById("logoutButton")
         };
 
         let allAlerts = [];
@@ -761,6 +764,7 @@
         let hasFittedMap = false;
         let map = null;
         let markerLayer = null;
+        let sessionReady = false;
 
         function setApiStatus(state, message) {
             elements.apiStatus.textContent = message;
@@ -955,73 +959,43 @@
         }
 
         async function resolveEmergency(alertId, button) {
-            const accessToken = sessionStorage.getItem(ACCESS_TOKEN_KEY);
-            if (!accessToken) {
-                updateAdminStatus("Sign in with an administrator account to resolve alerts.", "warn");
-                return;
-            }
+            if (!sessionReady) return;
 
             button.disabled = true;
             button.textContent = "Resolving…";
 
             try {
-                const response = await fetch(`${API_BASE}/emergency/${encodeURIComponent(alertId)}/resolve`, {
-                    method: "PATCH",
-                    headers: { "Authorization": `Bearer ${accessToken}` }
-                });
-
-                const result = await response.json().catch(() => ({}));
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        sessionStorage.removeItem(ACCESS_TOKEN_KEY);
-                        sessionStorage.removeItem("resqlink_user");
-                        updateAdminStatus("Your session expired. Sign in again.", "error");
-                    } else if (response.status === 403) {
-                        updateAdminStatus("Administrator role required to resolve alerts.", "error");
-                    }
-                    throw new Error(result.detail || `Request failed (${response.status})`);
-                }
-
+                await auth.request(
+                    `/emergency/${encodeURIComponent(alertId)}/resolve`,
+                    { method: "PATCH" }
+                );
                 await loadAlerts(true);
             } catch (error) {
+                if (error.code === "expired") {
+                    window.location.replace("login.html?next=dashboard.html&expired=1");
+                    return;
+                }
+                if (error.status === 403) {
+                    updateAdminStatus("Administrator role required to resolve alerts.", "error");
+                }
                 button.disabled = false;
                 button.textContent = "Retry resolve";
-                window.alert(`Could not resolve alert #${alertId}: ${error.message}`);
+                updateAdminStatus(`Could not resolve alert #${alertId}: ${error.message}`, "error");
             }
         }
 
         async function loadAlerts(manual = false) {
-            if (isLoading) return;
-            const accessToken = sessionStorage.getItem(ACCESS_TOKEN_KEY);
-            if (!accessToken) {
-                setApiStatus("offline", "Administrator sign-in required");
-                updateAdminStatus("Sign in with an administrator account to view emergency locations.");
-                return;
-            }
+            if (isLoading || !sessionReady) return;
 
             isLoading = true;
             elements.refreshButton.disabled = true;
             if (manual) elements.refreshButton.textContent = "↻ Refreshing…";
 
             try {
-                const response = await fetch(`${API_BASE}/emergencies`, {
-                    cache: "no-store",
-                    headers: { "Authorization": `Bearer ${accessToken}` }
+                const data = await auth.request("/emergencies", {
+                    method: "GET",
+                    cache: "no-store"
                 });
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        sessionStorage.removeItem(ACCESS_TOKEN_KEY);
-                        sessionStorage.removeItem("resqlink_user");
-                        updateAdminStatus("Your session expired. Sign in again.", "error");
-                    } else if (response.status === 403) {
-                        updateAdminStatus("Administrator role required. Alert locations are not available to this account.", "error");
-                    }
-                    throw new Error(response.status === 403
-                        ? "Administrator role required"
-                        : `API returned ${response.status}`);
-                }
-
-                const data = await response.json();
                 if (!data || !Array.isArray(data.emergencies)) {
                     throw new Error("Unexpected response from /emergencies. Expected an emergencies array.");
                 }
@@ -1037,6 +1011,13 @@
                 setApiStatus("online", "API connected");
                 updateAdminStatus("Administrator access verified by the API.", "ok");
             } catch (error) {
+                if (error.code === "expired") {
+                    window.location.replace("login.html?next=dashboard.html&expired=1");
+                    return;
+                }
+                if (error.status === 403) {
+                    updateAdminStatus("Administrator role required. Alert locations are not available to this account.", "error");
+                }
                 setApiStatus("offline", "API unavailable");
                 if (allAlerts.length === 0) {
                     elements.alerts.replaceChildren();
@@ -1052,6 +1033,66 @@
             }
         }
 
+        async function verifyAdminSession() {
+            let token;
+            try {
+                token = auth.getAccessToken();
+            } catch (error) {
+                updateAdminStatus(error.message, "error");
+                return false;
+            }
+            if (!token) {
+                window.location.replace("login.html?next=dashboard.html");
+                return false;
+            }
+            try {
+                const user = await auth.getCurrentUser();
+                if (user.role !== "ADMIN") {
+                    window.location.replace("index.html");
+                    return false;
+                }
+                sessionReady = true;
+                elements.refreshButton.disabled = false;
+                updateAdminStatus(
+                    "Administrator profile verified. The API authorizes each operation.",
+                    "ok"
+                );
+                return true;
+            } catch (error) {
+                if (error.code === "expired" || error.code === "unauthenticated") {
+                    window.location.replace(
+                        error.code === "expired"
+                            ? "login.html?next=dashboard.html&expired=1"
+                            : "login.html?next=dashboard.html"
+                    );
+                    return false;
+                }
+                setApiStatus("offline", "Session could not be verified");
+                updateAdminStatus(
+                    `${error.message} Reload this page after reconnecting.`,
+                    "error"
+                );
+                return false;
+            }
+        }
+
+        async function signOut() {
+            elements.logoutButton.disabled = true;
+            try {
+                await auth.logout();
+                window.location.replace("login.html?next=dashboard.html");
+            } catch (error) {
+                try {
+                    auth.clearSession();
+                } catch (clearError) {
+                    elements.logoutButton.disabled = false;
+                    updateAdminStatus(clearError.message, "error");
+                    return;
+                }
+                window.location.replace("login.html?logout=local");
+            }
+        }
+
         function updateAdminStatus(message, kind = "") {
             elements.adminStatus.textContent = message;
             elements.adminStatus.className = `admin-status ${kind}`.trim();
@@ -1061,6 +1102,7 @@
         elements.fitMapButton.addEventListener("click", fitAllMarkers);
         elements.search.addEventListener("input", renderAlerts);
         elements.filter.addEventListener("change", renderAlerts);
+        elements.logoutButton.addEventListener("click", signOut);
 
         // Highlight the navigation item for the section currently in view.
         document.querySelectorAll(".nav-link").forEach(link => {
@@ -1073,8 +1115,11 @@
         initialiseMap();
         updateClock();
         setInterval(updateClock, 1000);
-        loadAlerts();
-        setInterval(() => loadAlerts(false), REFRESH_INTERVAL_MS);
+        verifyAdminSession().then(verified => {
+            if (!verified) return;
+            loadAlerts();
+            setInterval(() => loadAlerts(false), REFRESH_INTERVAL_MS);
+        });
 
     </script>
 </body>

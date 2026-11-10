@@ -12,6 +12,7 @@ from supabase_auth.errors import AuthApiError
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import app as resqlink_app
+import storage
 
 
 USER_ID = "b2f3ac97-d7c2-48f4-a714-9e0f7abc1234"
@@ -41,6 +42,8 @@ class AuthorizationTests(unittest.TestCase):
             "app.process_emergency",
             return_value={"severity": 3, "label": "HIGH", "priority": 60}
         )
+        self.password_update_patch = patch("app.update_supabase_password")
+        self.session_revoke_patch = patch("app.revoke_supabase_session")
 
         for patcher in (
             self.auth_client_patch,
@@ -49,6 +52,8 @@ class AuthorizationTests(unittest.TestCase):
             self.save_alert_patch,
             self.resolve_alert_patch,
             self.process_emergency_patch,
+            self.password_update_patch,
+            self.session_revoke_patch,
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -223,6 +228,181 @@ class AuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["access_token"], "user-token")
         self.assertEqual(response.json()["user"]["role"], "USER")
+
+    @patch.dict(
+        "os.environ",
+        {"PASSWORD_RESET_REDIRECT_URL": "https://example.test/password-reset.html"}
+    )
+    def test_password_recovery_uses_supabase_and_fixed_redirect(self):
+        response = self.client.post(
+            "/password-recovery",
+            json={"email": " USER@EXAMPLE.COM "}
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.auth_client.auth.reset_password_email.assert_called_once_with(
+            "user@example.com",
+            options={
+                "redirect_to": "https://example.test/password-reset.html"
+            }
+        )
+        self.assertNotIn("user@example.com", response.json()["message"])
+
+    @patch.dict("os.environ", {}, clear=False)
+    def test_password_recovery_requires_redirect_configuration(self):
+        with patch.dict("os.environ", {"PASSWORD_RESET_REDIRECT_URL": ""}):
+            response = self.client.post(
+                "/password-recovery",
+                json={"email": "user@example.com"}
+            )
+        self.assertEqual(response.status_code, 503)
+        self.auth_client.auth.reset_password_email.assert_not_called()
+
+    def test_password_recovery_hides_unknown_email(self):
+        self.auth_client.auth.reset_password_email.side_effect = AuthApiError(
+            "User not found", 400, "user_not_found"
+        )
+        with patch.dict(
+            "os.environ",
+            {"PASSWORD_RESET_REDIRECT_URL": "https://example.test/password-reset.html"}
+        ):
+            response = self.client.post(
+                "/password-recovery",
+                json={"email": "missing@example.com"}
+            )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertNotIn("not found", response.json()["message"].lower())
+
+    def test_password_recovery_surfaces_invalid_redirect_configuration(self):
+        self.auth_client.auth.reset_password_email.side_effect = AuthApiError(
+            "Invalid redirect URL", 400, "validation_failed"
+        )
+        with patch.dict(
+            "os.environ",
+            {"PASSWORD_RESET_REDIRECT_URL": "https://example.test/not-allowed"}
+        ):
+            response = self.client.post(
+                "/password-recovery",
+                json={"email": "user@example.com"}
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("redirect configuration", response.json()["detail"])
+
+    def test_password_recovery_surfaces_supabase_rate_limit(self):
+        self.auth_client.auth.reset_password_email.side_effect = AuthApiError(
+            "Rate limit exceeded", 429, "over_email_send_rate_limit"
+        )
+        with patch.dict(
+            "os.environ",
+            {"PASSWORD_RESET_REDIRECT_URL": "https://example.test/password-reset.html"}
+        ):
+            response = self.client.post(
+                "/password-recovery",
+                json={"email": "user@example.com"}
+            )
+
+        self.assertEqual(response.status_code, 429)
+
+    def test_password_update_requires_authenticated_user(self):
+        response = self.client.post(
+            "/password-update",
+            json={"password": "new-password"}
+        )
+        self.assertEqual(response.status_code, 401)
+        resqlink_app.update_supabase_password.assert_not_called()
+
+    def test_password_update_uses_verified_access_token(self):
+        response = self.client.post(
+            "/password-update",
+            headers=self.auth("user-token"),
+            json={"password": "new-password"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        resqlink_app.update_supabase_password.assert_called_once_with(
+            "user-token",
+            "new-password"
+        )
+
+    def test_password_update_rejects_short_password(self):
+        response = self.client.post(
+            "/password-update",
+            headers=self.auth("user-token"),
+            json={"password": "short"}
+        )
+
+        self.assertEqual(response.status_code, 422)
+        resqlink_app.update_supabase_password.assert_not_called()
+
+    def test_logout_requires_authenticated_user(self):
+        response = self.client.post("/logout")
+        self.assertEqual(response.status_code, 401)
+        resqlink_app.revoke_supabase_session.assert_not_called()
+
+    def test_logout_revokes_only_the_verified_users_session(self):
+        response = self.client.post(
+            "/logout",
+            headers=self.auth("user-token")
+        )
+        self.assertEqual(response.status_code, 200)
+        resqlink_app.revoke_supabase_session.assert_called_once_with("user-token")
+
+    @patch.dict(
+        "os.environ",
+        {
+            "SUPABASE_URL": "https://auth.example.test",
+            "SUPABASE_KEY": "publishable-test-key",
+            "SUPABASE_SERVICE_ROLE_KEY": "must-not-be-used",
+        },
+        clear=False
+    )
+    @patch("storage.httpx.put")
+    def test_password_update_uses_anon_auth_api_and_verified_bearer(
+        self,
+        put
+    ):
+        put.return_value = SimpleNamespace(is_success=True, status_code=200)
+
+        storage.update_supabase_password("recovery-access-token", "new-password")
+
+        args, kwargs = put.call_args
+        self.assertEqual(args[0], "https://auth.example.test/auth/v1/user")
+        self.assertEqual(kwargs["headers"]["apikey"], "publishable-test-key")
+        self.assertEqual(
+            kwargs["headers"]["Authorization"],
+            "Bearer recovery-access-token"
+        )
+        self.assertEqual(kwargs["json"], {"password": "new-password"})
+        self.assertEqual(kwargs["timeout"], 10.0)
+        self.assertNotEqual(
+            kwargs["headers"]["apikey"],
+            "must-not-be-used"
+        )
+
+    @patch.dict(
+        "os.environ",
+        {
+            "SUPABASE_URL": "https://auth.example.test",
+            "SUPABASE_KEY": "publishable-test-key",
+        },
+        clear=False
+    )
+    @patch("storage.httpx.post")
+    def test_logout_requests_local_session_revocation(self, post):
+        post.return_value = SimpleNamespace(is_success=True, status_code=204)
+
+        storage.revoke_supabase_session("user-access-token")
+
+        args, kwargs = post.call_args
+        self.assertEqual(args[0], "https://auth.example.test/auth/v1/logout")
+        self.assertEqual(kwargs["params"], {"scope": "local"})
+        self.assertEqual(kwargs["headers"]["apikey"], "publishable-test-key")
+        self.assertEqual(
+            kwargs["headers"]["Authorization"],
+            "Bearer user-access-token"
+        )
 
     def test_user_cannot_access_all_alert_locations(self):
         response = self.client.get(
