@@ -61,9 +61,44 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Prepare static site
+        env:
+          RESQLINK_API_URL: ${{ vars.RESQLINK_API_URL }}
         run: |
           mkdir _site
-          cp *.html *.css api-config.js auth-session.js auth-pages.js emergency-api.js emergency-submit.js _site/
+          cp *.html *.css auth-session.js auth-pages.js emergency-api.js emergency-submit.js _site/
+          python - <<'PY'
+          import ipaddress
+          import json
+          import os
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          value = os.environ.get("RESQLINK_API_URL", "").strip()
+          parsed = urlparse(value)
+          if (
+              parsed.scheme != "https"
+              or not parsed.hostname
+              or parsed.username
+              or parsed.password
+              or parsed.query
+              or parsed.fragment
+              or any(char.isspace() for char in value)
+          ):
+              raise SystemExit("Set the Actions variable RESQLINK_API_URL to the deployed HTTPS API base URL.")
+          if parsed.hostname.lower() == "localhost":
+              raise SystemExit("RESQLINK_API_URL must not point to localhost.")
+          try:
+              address = ipaddress.ip_address(parsed.hostname)
+          except ValueError:
+              address = None
+          if address is not None and not address.is_global:
+              raise SystemExit("RESQLINK_API_URL must not point to a private or loopback IP address.")
+          api_url = value.rstrip("/")
+          Path("_site/api-config.js").write_text(
+              f"window.RESQLINK_API_URL = {json.dumps(api_url)};\n",
+              encoding="utf-8",
+          )
+          PY
           touch _site/.nojekyll
 
       - name: Upload site

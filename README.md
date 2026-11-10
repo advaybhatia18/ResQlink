@@ -22,7 +22,7 @@ priorities. The frontend is made of static HTML pages.
 ```text
 .
 ├── index.html, login.html, register.html, password-reset.html, dashboard.html
-├── api-config.js            # Frontend API URL; safe to publish
+├── api-config.js            # Local development API URL; not published by CI
 ├── emergency.css            # Mobile-first emergency page styles
 ├── emergency-api.js         # Authenticated API/session integration
 ├── emergency-submit.js      # GPS, submission states, and safe retries
@@ -175,15 +175,50 @@ open `index.html`. The other pages are `login.html`, `register.html`, and
 
 ## Deploy
 
+### Production configuration
+
+The GitHub Pages deployment generates `api-config.js` from the repository
+Actions variable `RESQLINK_API_URL`. Configure it under **Settings > Secrets
+and variables > Actions > Variables** with the actual public HTTPS Render API
+base URL. The workflow rejects an unset or loopback/private URL and does not
+copy the local-development `api-config.js` into the published site.
+
+On Render, configure `SUPABASE_URL`, `SUPABASE_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`, and `PASSWORD_RESET_REDIRECT_URL` as private
+environment variables. Set `FRONTEND_ORIGINS` to only the deployed Pages
+origin (or the explicitly selected custom-domain origin); do not include
+localhost in production. Local development origins belong only in the
+untracked `.env`. Never put a Supabase service-role key in GitHub variables,
+static assets, or browser code.
+
+The Render `/healthz` check is a process liveness check and does not validate
+Supabase connectivity. The API limits request bodies to 1 MiB and applies
+in-process request rates per ASGI peer address. These limits are single
+process, reset on restart, and may see a shared proxy address depending on
+hosting configuration; configure a trusted proxy-aware limiter and upstream
+WAF/DoS protection before a public production launch.
+
+### Backups, retention, and recovery
+
+No automatic location-retention or application backup schedule is configured
+by this repository. Before storing operational data, choose a retention period
+and deletion process for precise coordinates, verify the Supabase plan's
+backup and point-in-time recovery coverage, and document who can access and
+restore backups. Restrict, encrypt, and periodically test restoration of
+backups in a separate environment. Account deletion cascades to owned alerts,
+so confirm the implications for incident records and legal retention before
+deleting profiles. Define incident response, credential rotation, and
+recovery ownership outside this demo application.
+
 ### GitHub Pages frontend
 
 1. Push the repository to GitHub's `main` branch.
 2. In the repository, open **Settings > Pages** and set the source to
    **GitHub Actions**.
-3. Set `window.RESQLINK_API_URL` in `api-config.js` to the deployed backend
-   base URL (for example, `https://resqlink-api.onrender.com`) and push the
-   change. Do not add a trailing slash.
-4. The workflow at `.github/workflows/pages.yml` deploys the root-level static
+3. Configure the repository Actions variable `RESQLINK_API_URL` as described
+   above with the deployed Render API's HTTPS base URL.
+4. The workflow at `.github/workflows/pages.yml` validates this URL and
+   generates the production API configuration before deploying the static
    pages. The site URL is shown under **Settings > Pages**.
 
 ### FastAPI backend on Render
@@ -198,9 +233,9 @@ open `index.html`. The other pages are `login.html`, `register.html`, and
    remove any old `RESQLINK_ADMIN_TOKEN` setting; it is no longer used.
 3. Set `FRONTEND_ORIGINS` to the exact origin of your Pages site, for example
    `https://advaybhatia18.github.io`. Origins have no path or trailing slash.
-   The provided Render value includes the default repository's Pages origin
-   plus localhost origins for development.
-4. Copy the Render service URL into `api-config.js`, then push to `main`.
+   The production blueprint value contains only the default Pages origin.
+4. Set the same Render HTTPS service URL as the GitHub Actions variable
+   `RESQLINK_API_URL`; do not commit a production URL to frontend source.
 
 The configured Supabase project must have the tables and signup trigger from
 [`supabase/schema.sql`](./supabase/schema.sql). For a custom Pages domain,
@@ -297,8 +332,8 @@ emergency services. Use local emergency channels for real emergencies.
   cannot update `user_id`, and the service-role key remains backend-only.
 - Keep `.env` and its secrets out of source control. Use distinct secrets for
   every deployment and do not use development settings for a public service.
-- The default frontend API URL is for local development; point
-  `api-config.js` to the deployed API before using the GitHub Pages site.
+- `api-config.js` is for local development. The Pages workflow generates its
+  production copy from the required Actions variable `RESQLINK_API_URL`.
 - Reset links are sent to the configured `PASSWORD_RESET_REDIRECT_URL`, which
   must be allowlisted in Supabase Auth settings. The recovery access token is
   read from the URL fragment, removed from browser history, used only in

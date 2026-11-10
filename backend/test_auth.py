@@ -1,3 +1,4 @@
+import logging
 import sys
 import unittest
 from pathlib import Path
@@ -101,6 +102,51 @@ class AuthorizationTests(unittest.TestCase):
             401
         )
 
+    def test_health_endpoint_needs_no_external_service(self):
+        response = self.client.get("/healthz")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertIn("x-request-id", response.headers)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_request_body_size_is_limited(self):
+        response = self.client.post(
+            "/register",
+            content=b"x" * (1_048_577),
+            headers={"Content-Type": "application/json"}
+        )
+
+        self.assertEqual(response.status_code, 413)
+
+    def test_cors_preflight_allows_only_configured_dashboard_origin(self):
+        response = self.client.options(
+            "/emergencies",
+            headers={
+                "Origin": "https://advaybhatia18.github.io",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization",
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers["access-control-allow-origin"],
+            "https://advaybhatia18.github.io"
+        )
+        self.assertNotIn("access-control-allow-credentials", response.headers)
+
+    def test_cors_rejects_unconfigured_origin(self):
+        response = self.client.options(
+            "/emergencies",
+            headers={
+                "Origin": "https://untrusted.example",
+                "Access-Control-Request-Method": "GET",
+            }
+        )
+
+        self.assertNotIn("access-control-allow-origin", response.headers)
+
     def test_invalid_token_is_401(self):
         headers = self.auth("invalid")
         self.assertEqual(
@@ -143,6 +189,26 @@ class AuthorizationTests(unittest.TestCase):
             request_key,
             "42542a3c-a73d-455f-9388-893fce868a47"
         )
+
+    def test_request_logs_exclude_tokens_and_precise_coordinates(self):
+        with self.assertLogs("resqlink.requests", level="INFO") as captured:
+            response = self.client.post(
+                "/emergency",
+                headers=self.auth("user-token"),
+                json={
+                    "severity": 3,
+                    "latitude": 12.9,
+                    "longitude": 77.5,
+                }
+            )
+
+        self.assertEqual(response.status_code, 201)
+        log_output = "\n".join(captured.output)
+        self.assertIn('"event":"http_request"', log_output)
+        self.assertNotIn("user-token", log_output)
+        self.assertNotIn("12.9", log_output)
+        self.assertNotIn("77.5", log_output)
+        self.assertNotIn("Authorization", log_output)
 
     def test_valid_admin_can_read_alerts(self):
         response = self.client.get(

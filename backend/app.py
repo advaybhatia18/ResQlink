@@ -2,6 +2,7 @@ import os
 import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -23,6 +24,7 @@ from storage import (
     save_alert,
     update_supabase_password,
 )
+from request_controls import RequestControlsMiddleware
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -38,18 +40,29 @@ allowed_origins = [
     origin.strip().rstrip("/")
     for origin in os.getenv(
         "FRONTEND_ORIGINS",
-        "http://127.0.0.1:5500,http://localhost:5500,"
         "https://advaybhatia18.github.io"
     ).split(",")
     if origin.strip()
 ]
+if not allowed_origins or any(
+    origin == "*"
+    or urlparse(origin).scheme not in {"http", "https"}
+    or not urlparse(origin).netloc
+    or urlparse(origin).path not in {"", "/"}
+    or urlparse(origin).query
+    or urlparse(origin).fragment
+    for origin in allowed_origins
+):
+    raise RuntimeError("FRONTEND_ORIGINS must contain explicit HTTP(S) origins")
 
+# Register first so CORS wraps even rate-limit and request-size error responses.
+app.add_middleware(RequestControlsMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
 )
 
 
@@ -198,6 +211,11 @@ def home():
         "message": "Welcome to ResQlink API",
         "status": "Running"
     }
+
+
+@app.get("/healthz")
+def health_check():
+    return {"status": "ok"}
 
 
 @app.post("/emergency")
