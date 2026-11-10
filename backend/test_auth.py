@@ -153,6 +153,20 @@ class AuthorizationTests(unittest.TestCase):
         self.assertEqual(response.json(), {"count": 0, "emergencies": []})
         resqlink_app.get_alerts.assert_called_once_with()
 
+    def test_admin_listing_reports_database_failure(self):
+        resqlink_app.get_alerts.side_effect = HTTPException(
+            status_code=503,
+            detail="Could not load emergencies from Supabase"
+        )
+
+        response = self.client.get(
+            "/emergencies",
+            headers=self.auth("admin-token")
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("Supabase", response.json()["detail"])
+
     def test_admin_alert_filters_combine_severity_status_and_search(self):
         resqlink_app.get_alerts.return_value = [
             {
@@ -252,6 +266,16 @@ class AuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "RESOLVED")
 
+    def test_admin_resolution_reports_missing_alert(self):
+        resqlink_app.resolve_alert.return_value = False
+
+        response = self.client.patch(
+            "/emergency/999/resolve",
+            headers=self.auth("admin-token")
+        )
+
+        self.assertEqual(response.status_code, 404)
+
     def test_registration_still_uses_supabase_auth(self):
         self.auth_client.auth.sign_up.return_value = SimpleNamespace(
             user=SimpleNamespace(id=USER_ID, email="user@example.com")
@@ -274,6 +298,38 @@ class AuthorizationTests(unittest.TestCase):
             {"name": "New User"}
         )
 
+    def test_registration_rejects_duplicate_email(self):
+        self.auth_client.auth.sign_up.side_effect = AuthApiError(
+            "Account exists", 422, "user_already_exists"
+        )
+
+        response = self.client.post(
+            "/register",
+            json={
+                "name": "New User",
+                "email": "user@example.com",
+                "password": "secure-password"
+            }
+        )
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_registration_reports_supabase_outage(self):
+        self.auth_client.auth.sign_up.side_effect = AuthApiError(
+            "Service unavailable", 503, None
+        )
+
+        response = self.client.post(
+            "/register",
+            json={
+                "name": "New User",
+                "email": "user@example.com",
+                "password": "secure-password"
+            }
+        )
+
+        self.assertEqual(response.status_code, 503)
+
     def test_login_still_returns_supabase_access_token(self):
         self.auth_client.auth.sign_in_with_password.return_value = SimpleNamespace(
             user=SimpleNamespace(id=USER_ID, email="user@example.com"),
@@ -291,6 +347,21 @@ class AuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["access_token"], "user-token")
         self.assertEqual(response.json()["user"]["role"], "USER")
+
+    def test_login_rejects_invalid_credentials(self):
+        self.auth_client.auth.sign_in_with_password.side_effect = AuthApiError(
+            "Invalid credentials", 401, None
+        )
+
+        response = self.client.post(
+            "/login",
+            json={
+                "email": "user@example.com",
+                "password": "incorrect-password"
+            }
+        )
+
+        self.assertEqual(response.status_code, 401)
 
     @patch.dict(
         "os.environ",

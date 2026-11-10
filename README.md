@@ -31,6 +31,9 @@ priorities. The frontend is made of static HTML pages.
 ├── auth-pages.js            # Login, registration, and recovery form behavior
 ├── backend/                 # FastAPI API and Supabase access
 ├── core/                    # C engine source and local Windows DLL
+├── backend/test_*.py        # pytest-discovered engine, API, and storage tests
+├── frontend-tests/          # Node.js tests for browser API/session handling
+├── conftest.py              # Builds the C engine into a temporary test directory
 ├── supabase/schema.sql      # Supabase tables and signup trigger
 ├── .github/workflows/       # GitHub Pages deployment
 ├── render.yaml              # Render API deployment
@@ -48,9 +51,47 @@ Run these commands from the project root in PowerShell:
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
 ```
+
+## Run tests locally
+
+The test suite uses `pytest` for Python tests and Node.js's built-in test
+runner for the browser session client. It does not need a Supabase project,
+production credentials, real accounts, or GPS data; Supabase and HTTP
+operations are mocked. The pytest setup compiles `core\emergency.c` to a
+temporary native library and removes it after the run.
+
+Install a C compiler and Node.js before running tests:
+
+- Windows: install MinGW-w64 and ensure `gcc` is on `PATH`; install Node.js 20
+  or newer.
+- Ubuntu/Debian: `sudo apt-get install build-essential`; install Node.js 20 or
+  newer.
+- macOS: install the Xcode Command Line Tools with `xcode-select --install`;
+  install Node.js 20 or newer.
+
+From the repository root in PowerShell, create the environment and install
+test dependencies:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-dev.txt
+```
+
+Run the backend, C-engine, and storage suite, then the frontend API/session
+tests:
+
+```powershell
+python -m pytest
+node --test frontend-tests\auth-session.test.cjs
+```
+
+Pytest also discovers the existing `unittest` API and ownership tests. The
+GitHub Actions workflow runs both commands on pull requests and before
+publishing GitHub Pages from `main`; a failed test job prevents deployment.
 
 Create a Supabase project, then open **Project Settings > API** and copy the
 project URL and publishable key (`sb_publishable_...`) into `SUPABASE_URL` and
@@ -159,6 +200,11 @@ open `index.html`. The other pages are `login.html`, `register.html`, and
 The configured Supabase project must have the tables and signup trigger from
 [`supabase/schema.sql`](./supabase/schema.sql). For a custom Pages domain,
 update `FRONTEND_ORIGINS` in Render to match its `https://` origin.
+The Render API deployment requires the configured Supabase URL, publishable
+key, backend-only service-role key, password-reset redirect URL, and a working
+GCC compiler to build the native C engine. These deployment credentials are
+not needed by the test suite and must not be added as test fixtures or CI
+secrets.
 
 For local development, set `PASSWORD_RESET_REDIRECT_URL` in `.env` to the
 absolute Live Server URL, for example
@@ -256,8 +302,7 @@ emergency services. Use local emergency channels for real emergencies.
   environment settings. Administrator permissions now come from
   `public.profiles.role`.
 - Run authorization tests with
-  `python -m unittest discover -s backend -p "test_auth.py"`.
-- Run the backend regression suite with
-  `python -m unittest discover -s backend -p "test_*.py"`.
+- Run the complete automated suite with `python -m pytest` and
+  `node --test frontend-tests\auth-session.test.cjs`.
 - Existing accounts and alerts in `database/resqlink.db` are not migrated
   automatically; export/import them separately if they need to be retained.

@@ -5,7 +5,10 @@ from pathlib import Path
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if os.name == "nt":
+configured_engine_path = os.getenv("RESQLINK_ENGINE_PATH")
+if configured_engine_path:
+    ENGINE_PATH = Path(configured_engine_path)
+elif os.name == "nt":
     ENGINE_PATH = PROJECT_ROOT / "core" / "emergency64.dll"
 elif sys.platform == "darwin":
     ENGINE_PATH = PROJECT_ROOT / "core" / "libemergency.dylib"

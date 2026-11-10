@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
 from fastapi import HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -81,6 +82,28 @@ class StorageOwnershipTests(unittest.TestCase):
     def test_admin_query_is_unfiltered(self):
         storage.get_alerts()
         self.query.eq.assert_not_called()
+
+    def test_alert_listing_reports_database_connection_failure(self):
+        self.query.order.return_value.execute.side_effect = httpx.ConnectError(
+            "database offline"
+        )
+
+        with self.assertRaises(HTTPException) as error:
+            storage.get_alerts()
+
+        self.assertEqual(error.exception.status_code, 503)
+
+    def test_alert_resolution_reports_database_connection_failure(self):
+        update_query = self.client.table.return_value.update.return_value
+        filtered_query = update_query.eq.return_value
+        filtered_query.select.return_value.execute.side_effect = httpx.ConnectError(
+            "database offline"
+        )
+
+        with self.assertRaises(HTTPException) as error:
+            storage.resolve_alert(42)
+
+        self.assertEqual(error.exception.status_code, 503)
 
     def test_invalid_emergency_is_rejected_before_database_write(self):
         invalid = {
