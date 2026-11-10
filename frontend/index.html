@@ -1,0 +1,233 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResQlink | Emergency Assistance</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            background: #101827;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 430px;
+            background: #1d293b;
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 10px 35px #0006;
+        }
+
+        h1 {
+            color: #ff5252;
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #b8c4d6;
+            margin-bottom: 30px;
+        }
+
+        label {
+            display: block;
+            text-align: left;
+            margin-bottom: 10px;
+        }
+
+        select {
+            width: 100%;
+            padding: 13px;
+            border-radius: 8px;
+            border: none;
+            margin-bottom: 25px;
+            font-size: 16px;
+        }
+
+        .sos-button {
+            width: 190px;
+            height: 190px;
+            border-radius: 50%;
+            border: 8px solid #ff9999;
+            background: #e53935;
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 0 25px #e5393580;
+            transition: 0.2s;
+        }
+
+        .sos-button:hover {
+            transform: scale(1.04);
+        }
+
+        .sos-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .location {
+            margin-top: 30px;
+            padding: 15px;
+            background: #29384d;
+            border-radius: 10px;
+            color: #cbd5e1;
+            line-height: 1.8;
+            overflow-wrap: anywhere;
+        }
+
+        #status {
+            margin-top: 20px;
+            min-height: 45px;
+            line-height: 1.5;
+            color: #facc15;
+        }
+
+        .note {
+            margin-top: 20px;
+            font-size: 12px;
+            color: #9ca3af;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <h1>ResQlink</h1>
+        <p class="subtitle">Smart Emergency Alert System</p>
+
+        <label for="severity">Select Emergency Severity</label>
+
+        <select id="severity">
+            <option value="1">1 - Low</option>
+            <option value="2">2 - Moderate</option>
+            <option value="3">3 - High</option>
+            <option value="4">4 - Very High</option>
+            <option value="5" selected>5 - Critical</option>
+        </select>
+
+        <button class="sos-button" id="sosButton" onclick="sendAlert()">
+            SOS
+        </button>
+
+        <div class="location">
+            <strong>GPS Location</strong>
+            <p id="latitude">Latitude: Not detected</p>
+            <p id="longitude">Longitude: Not detected</p>
+        </div>
+
+        <p id="status">Ready for a test alert.</p>
+
+        <p class="note">
+            DEMO PROJECT — This application does not contact real emergency services.
+        </p>
+
+    </div>
+
+    <script>
+        async function sendAlert() {
+
+            const button = document.getElementById("sosButton");
+            const status = document.getElementById("status");
+
+            button.disabled = true;
+            status.textContent = "Requesting your GPS location...";
+
+            if (!navigator.geolocation) {
+                status.textContent = "GPS is not supported by this browser.";
+                button.disabled = false;
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                async function(position) {
+
+                    const latitude = position.coords.latitude;
+                    const longitude = position.coords.longitude;
+
+                    document.getElementById("latitude").textContent =
+                        "Latitude: " + latitude;
+
+                    document.getElementById("longitude").textContent =
+                        "Longitude: " + longitude;
+
+                    status.textContent = "Sending test alert...";
+
+                    try {
+
+                        const response = await fetch(
+                            "http://127.0.0.1:8000/emergency",
+                            {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json"
+                                },
+                                body: JSON.stringify({
+                                    severity: Number(
+                                        document.getElementById("severity").value
+                                    ),
+                                    latitude: latitude,
+                                    longitude: longitude
+                                })
+                            }
+                        );
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            throw new Error(
+                                data.detail || "Could not save alert"
+                            );
+                        }
+
+                        status.textContent =
+                            "Test alert saved! Alert ID: " + data.alert_id;
+
+                    } catch (error) {
+
+                        status.textContent =
+                            "Error: " + error.message;
+
+                    } finally {
+                        button.disabled = false;
+                    }
+                },
+
+                function(error) {
+
+                    status.textContent =
+                        "GPS error: " + error.message;
+
+                    button.disabled = false;
+                },
+
+                {
+                    enableHighAccuracy: true,
+                    timeout: 15000,
+                    maximumAge: 0
+                }
+            );
+        }
+    </script>
+
+</body>
+</html>

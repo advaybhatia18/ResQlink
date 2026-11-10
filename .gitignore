@@ -1,0 +1,22 @@
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Local database and logs
+database/*.db
+*.log
+build-log.txt
+gcc-error.txt
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#080e19">
+    <title>ResQlink | Emergency Command Centre</title>
+
+    <!-- Leaflet base styles must load before the marker-cluster styles. -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #080e19;
+            --panel: rgba(17, 28, 44, 0.78);
+            --panel-strong: rgba(22, 37, 57, 0.94);
+            --panel-soft: rgba(31, 49, 73, 0.58);
+            --line: rgba(145, 190, 225, 0.15);
+            --cyan: #36e6ef;
+            --blue: #548aff;
+            --red: #ff526d;
+            --amber: #ffbf69;
+            --green: #38dfac;
+            --text: #edf7ff;
+            --muted: #8ba0b8;
+            --shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
+            --radius: 18px;
+        }
+
+        * { box-sizing: border-box; }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            min-width: 320px;
+            min-height: 100vh;
+            margin: 0;
+            color: var(--text);
+            font-family: Inter, "Segoe UI", Arial, sans-serif;
+            background:
+                radial-gradient(ellipse at 12% 0%, rgba(18, 74, 105, 0.32), transparent 38%),
+                radial-gradient(ellipse at 92% 78%, rgba(52, 65, 145, 0.22), transparent 36%),
+                var(--bg);
+        }
+
+        body::before {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            content: "";
+            pointer-events: none;
+            opacity: 0.13;
+            background-image:
+                linear-gradient(rgba(54, 230, 239, 0.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(54, 230, 239, 0.08) 1px, transparent 1px);
+            background-size: 42px 42px;
+        }
+
+        button, input, select { font: inherit; }
+        button, a { -webkit-tap-highlight-color: transparent; }
+        a { color: var(--cyan); text-decoration: none; }
+        a:hover { color: #fff; }
+
+        .app-shell {
+            display: grid;
+            grid-template-columns: 248px minmax(0, 1fr);
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: sticky;
+            top: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 27px 18px;
+            border-right: 1px solid var(--line);
+            background: rgba(7, 15, 27, 0.78);
+            backdrop-filter: blur(22px);
+            -webkit-backdrop-filter: blur(22px);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 3px 8px 30px;
+        }
+
+        .brand-mark {
+            display: grid;
+            width: 42px;
+            height: 42px;
+            place-items: center;
+            border: 1px solid rgba(54, 230, 239, 0.44);
+            border-radius: 13px;
+            color: var(--cyan);
+            background: linear-gradient(145deg, rgba(54, 230, 239, 0.18), rgba(84, 138, 255, 0.12));
+            box-shadow: 0 0 24px rgba(54, 230, 239, 0.14), inset 0 0 18px rgba(54, 230, 239, 0.08);
+            font-size: 20px;
+            font-weight: 900;
+        }
+
+        .brand-name {
+            margin: 0;
+            color: var(--text);
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+
+        .brand-subtitle {
+            margin: 3px 0 0;
+            color: var(--muted);
+            font-size: 10px;
+            letter-spacing: 1.7px;
+            text-transform: uppercase;
+        }
+
+        .nav-label {
+            margin: 8px 10px 11px;
+            color: #667e98;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.8px;
+            text-transform: uppercase;
+        }
+
+        .nav-list { display: grid; gap: 7px; }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-height: 45px;
+            padding: 0 12px;
+            border: 1px solid transparent;
+            border-radius: 11px;
+            color: #a8bacd;
+            font-size: 13px;
+            transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            border-color: rgba(54, 230, 239, 0.18);
+            color: var(--cyan);
+            background: rgba(54, 230, 239, 0.08);
+        }
+
+        .nav-icon {
+            display: inline-grid;
+            width: 22px;
+            place-items: center;
+            color: inherit;
+            font-size: 16px;
+        }
+
+        .sidebar-spacer { flex: 1; }
+
+        .demo-note {
+            padding: 13px;
+            border: 1px solid rgba(255, 191, 105, 0.18);
+            border-radius: 12px;
+            color: #d8c5a7;
+            background: rgba(255, 191, 105, 0.06);
+            font-size: 11px;
+            line-height: 1.55;
+        }
+
+        .demo-note strong { color: var(--amber); }
+
+        .main-content {
+            width: 100%;
+            max-width: 1700px;
+            min-width: 0;
+            margin: 0 auto;
+            padding: 30px clamp(18px, 3vw, 46px) 44px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 27px;
+        }
+
+        .eyebrow {
+            margin: 0 0 7px;
+            color: var(--cyan);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 2.2px;
+            text-transform: uppercase;
+        }
+
+        .page-title {
+            margin: 0;
+            font-size: clamp(25px, 3vw, 34px);
+            font-weight: 750;
+            letter-spacing: -0.7px;
+        }
+
+        .topbar-right {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .system-pill, .clock-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            min-height: 38px;
+            padding: 0 13px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            color: #b7c8d9;
+            background: rgba(17, 28, 44, 0.68);
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            flex: 0 0 auto;
+            border-radius: 50%;
+            background: var(--amber);
+            box-shadow: 0 0 12px currentColor;
+        }
+
+        .status-dot.online { color: var(--green); background: var(--green); }
+        .status-dot.offline { color: var(--red); background: var(--red); }
+
+        .glass-panel {
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: linear-gradient(145deg, rgba(25, 43, 66, 0.78), rgba(12, 23, 39, 0.84));
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+        }
+
+        .welcome-row {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 18px;
+        }
+
+        .section-caption {
+            margin: 0;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 40px;
+            padding: 0 15px;
+            border: 1px solid rgba(54, 230, 239, 0.32);
+            border-radius: 10px;
+            color: #f4fdff;
+            background: linear-gradient(135deg, #226fbe, #159dae);
+            box-shadow: 0 0 20px rgba(54, 230, 239, 0.12);
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+        }
+
+        .button:hover { transform: translateY(-1px); box-shadow: 0 0 25px rgba(54, 230, 239, 0.22); }
+        .button:disabled { cursor: not-allowed; opacity: 0.55; transform: none; }
+        .button.secondary { border-color: var(--line); color: #bfd0e1; background: rgba(255, 255, 255, 0.045); box-shadow: none; }
+        .button.resolve { min-height: 34px; padding: 0 12px; border-color: rgba(56, 223, 172, 0.25); color: #a4f4d8; background: rgba(56, 223, 172, 0.10); box-shadow: none; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 15px;
+            margin: 19px 0 25px;
+        }
+
+        .stat-card {
+            position: relative;
+            min-height: 132px;
+            overflow: hidden;
+            padding: 19px 20px;
+        }
+
+        .stat-card::after {
+            position: absolute;
+            top: -34px;
+            right: -28px;
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            background: var(--glow, rgba(54, 230, 239, 0.13));
+            content: "";
+            filter: blur(23px);
+        }
+
+        .stat-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .stat-label {
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 1.3px;
+            text-transform: uppercase;
+        }
+
+        .stat-icon {
+            display: grid;
+            width: 31px;
+            height: 31px;
+            place-items: center;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            color: var(--accent, var(--cyan));
+            background: rgba(255, 255, 255, 0.045);
+            font-size: 14px;
+        }
+
+        .stat-value {
+            position: relative;
+            z-index: 1;
+            margin-top: 13px;
+            color: var(--accent, var(--cyan));
+            font-size: 34px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            text-shadow: 0 0 22px var(--glow, rgba(54, 230, 239, 0.2));
+        }
+
+        .stat-foot {
+            margin-top: 2px;
+            color: #71869f;
+            font-size: 10px;
+        }
+
+        .section-heading {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 14px;
+            margin: 29px 0 14px;
+        }
+
+        .section-heading h2 {
+            margin: 0;
+            font-size: 18px;
+            letter-spacing: -0.2px;
+        }
+
+        .section-heading p {
+            margin: 5px 0 0;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .map-panel { padding: 16px; }
+
+        .map-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 13px;
+        }
+
+        .map-legend {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            color: var(--muted);
+            font-size: 10px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+        .legend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); }
+        .legend-dot.resolved { background: var(--green); }
+
+        #emergencyMap {
+            width: 100%;
+            height: 440px;
+            border: 1px solid rgba(140, 180, 215, 0.18);
+            border-radius: 13px;
+            overflow: hidden;
+            background: #101c2c;
+            z-index: 1;
+        }
+
+        .map-error {
+            display: none;
+            padding: 18px;
+            border: 1px solid rgba(255, 191, 105, 0.22);
+            border-radius: 12px;
+            color: #f2d1a2;
+            background: rgba(255, 191, 105, 0.07);
+            font-size: 12px;
+        }
+
+        .alert-tools {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .field {
+            min-height: 40px;
+            padding: 0 12px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            outline: none;
+            color: var(--text);
+            background: rgba(5, 13, 24, 0.62);
+            font-size: 12px;
+        }
+
+        .field::placeholder { color: #6e839b; }
+        .field:focus { border-color: rgba(54, 230, 239, 0.55); box-shadow: 0 0 0 3px rgba(54, 230, 239, 0.08); }
+        .search-field { width: min(250px, 100%); }
+        select.field { min-width: 135px; }
+
+        .alert-list { display: grid; gap: 12px; }
+
+        .alert-card {
+            position: relative;
+            padding: 17px 18px;
+            border: 1px solid var(--line);
+            border-left: 3px solid var(--red);
+            border-radius: 14px;
+            background: linear-gradient(120deg, rgba(25, 42, 64, 0.88), rgba(13, 25, 42, 0.92));
+            transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .alert-card.resolved { border-left-color: var(--green); }
+        .alert-card:hover { transform: translateY(-2px); border-color: rgba(54, 230, 239, 0.3); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18); }
+
+        .alert-main-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+        }
+
+        .alert-title {
+            margin: 0;
+            color: #f2f8ff;
+            font-size: 14px;
+            font-weight: 750;
+        }
+
+        .alert-meta {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            min-height: 23px;
+            padding: 0 9px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            color: #b8c8d8;
+            background: rgba(255, 255, 255, 0.035);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+
+        .tag.critical { border-color: rgba(255, 82, 109, 0.28); color: #ff8b9e; background: rgba(255, 82, 109, 0.09); }
+        .tag.high { border-color: rgba(255, 191, 105, 0.25); color: #ffd08d; background: rgba(255, 191, 105, 0.07); }
+        .tag.active { border-color: rgba(255, 82, 109, 0.24); color: #ff9aaa; }
+        .tag.resolved { border-color: rgba(56, 223, 172, 0.25); color: #8af0ca; background: rgba(56, 223, 172, 0.07); }
+
+        .alert-time {
+            margin: 10px 0 0;
+            color: #8196ad;
+            font-size: 11px;
+        }
+
+        .alert-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 13px;
+        }
+
+        .map-link { font-size: 11px; font-weight: 650; }
+        .empty-state, .error-state {
+            padding: 28px 18px;
+            border: 1px dashed var(--line);
+            border-radius: 13px;
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.025);
+            text-align: center;
+            font-size: 12px;
+        }
+        .error-state { border-color: rgba(255, 82, 109, 0.24); color: #ff9aaa; }
+
+        .admin-panel {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: end;
+            padding: 17px;
+        }
+
+        .admin-copy h3 { margin: 0 0 5px; color: var(--text); font-size: 13px; }
+        .admin-copy p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+        .admin-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+        .admin-input { width: min(290px, 48vw); }
+        .admin-status { grid-column: 1 / -1; min-height: 15px; margin: 0; color: var(--muted); font-size: 10px; }
+        .admin-status.ok { color: var(--green); }
+        .admin-status.warn { color: var(--amber); }
+        .admin-status.error { color: #ff9aaa; }
+
+        .footer-note {
+            margin: 26px 0 0;
+            color: #637991;
+            font-size: 10px;
+            line-height: 1.6;
+            text-align: center;
+        }
+
+        /* Keep Leaflet controls legible against the dark dashboard. */
+        .leaflet-control-zoom a { color: #172638 !important; }
+        .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #15253a; color: #edf7ff; }
+        .leaflet-popup-content { line-height: 1.55; }
+        .leaflet-container a.leaflet-popup-close-button { color: #b9d5e4; }
+
+        @media (max-width: 1100px) {
+            .app-shell { grid-template-columns: 205px minmax(0, 1fr); }
+            .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 760px) {
+            .app-shell { display: block; }
+            .sidebar { position: static; width: 100%; height: auto; padding: 14px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
+            .brand { padding: 0 3px 13px; }
+            .nav-label, .sidebar-spacer, .demo-note { display: none; }
+            .nav-list { display: flex; overflow-x: auto; gap: 6px; padding-bottom: 2px; }
+            .nav-link { min-height: 37px; padding: 0 10px; white-space: nowrap; font-size: 11px; }
+            .main-content { padding: 22px 14px 32px; }
+            .topbar { align-items: flex-start; flex-direction: column; }
+            .topbar-right { justify-content: flex-start; }
+            .welcome-row, .section-heading { align-items: flex-start; flex-direction: column; }
+            .stats-grid { gap: 10px; }
+            .stat-card { min-height: 115px; padding: 15px; }
+            .stat-value { font-size: 29px; }
+            .map-panel { padding: 10px; }
+            #emergencyMap { height: 340px; }
+            .alert-tools { width: 100%; }
+            .search-field { flex: 1; width: 100%; }
+            .admin-panel { grid-template-columns: 1fr; }
+            .admin-controls { width: 100%; }
+            .admin-input { flex: 1; width: 100%; }
+            .alert-main-row { flex-direction: column; }
+        }
+
+        @media (max-width: 420px) {
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .system-pill, .clock-pill { min-height: 34px; font-size: 10px; }
+            .alert-tools select { flex: 1; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark" aria-hidden="true">R</div>
+                <div>
+                    <p class="brand-name">ResQlink</p>
+                    <p class="brand-subtitle">Emergency response</p>
+                </div>
+            </div>
+
+            <p class="nav-label">Command centre</p>
+            <nav class="nav-list" aria-label="Dashboard navigation">
+                <a class="nav-link active" href="#overview"><span class="nav-icon">▦</span>Overview</a>
+                <a class="nav-link" href="#map-section"><span class="nav-icon">◎</span>Live emergency map</a>
+                <a class="nav-link" href="#alerts-section"><span class="nav-icon">⚑</span>Alert reports</a>
+                <a class="nav-link" href="#admin-section"><span class="nav-icon">⌑</span>Admin access</a>
+            </nav>
+
+            <div class="sidebar-spacer"></div>
+            <div class="demo-note">
+                <strong>DEMO ENVIRONMENT</strong><br>
+                This dashboard records and displays test alerts. It does not contact real emergency services.
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="topbar" id="overview">
+                <div>
+                    <p class="eyebrow">ResQlink / Operations</p>
+                    <h1 class="page-title">Emergency Command Centre</h1>
+                </div>
+                <div class="topbar-right">
+                    <div class="system-pill"><span class="status-dot" id="apiDot"></span><span id="apiStatus">Connecting to API</span></div>
+                    <div class="clock-pill"><span aria-hidden="true">◷</span><span id="liveClock">--:--:--</span></div>
+                    <button class="button" id="refreshButton" type="button">↻ Refresh alerts</button>
+                </div>
+            </header>
+
+            <section aria-label="Emergency statistics">
+                <div class="welcome-row">
+                    <div>
+                        <p class="eyebrow">Live overview</p>
+                        <p class="section-caption">A real-time view of emergency reports received by the ResQlink prototype.</p>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <article class="glass-panel stat-card" style="--accent: var(--cyan); --glow: rgba(54,230,239,.15)">
+                        <div class="stat-top"><span class="stat-label">Total alerts</span><span class="stat-icon">▤</span></div>
+                        <div class="stat-value" id="total">—</div>
+                        <div class="stat-foot">All recorded reports</div>
+                    </article>
+                    <article class="glass-panel stat-card" style="--accent: var(--red); --glow: rgba(255,82,109,.15)">
+                        <div class="stat-top"><span class="stat-label">Critical alerts</span><span class="stat-icon">!</span></div>
+                        <div class="stat-value" id="critical">—</div>
+                        <div class="stat-foot">Severity level 5</div>
+                    </article>
+                    <article class="glass-panel stat-card" style="--accent: var(--amber); --glow: rgba(255,191,105,.14)">
+                        <div class="stat-top"><span class="stat-label">Active alerts</span><span class="stat-icon">◉</span></div>
+                        <div class="stat-value" id="active">—</div>
+                        <div class="stat-foot">Awaiting resolution</div>
+                    </article>
+                    <article class="glass-panel stat-card" style="--accent: var(--green); --glow: rgba(56,223,172,.14)">
+                        <div class="stat-top"><span class="stat-label">Resolved alerts</span><span class="stat-icon">✓</span></div>
+                        <div class="stat-value" id="resolved">—</div>
+                        <div class="stat-foot">Marked as resolved</div>
+                    </article>
+                </div>
+            </section>
+
+            <section id="map-section">
+                <div class="section-heading">
+                    <div>
+                        <h2>Live emergency map</h2>
+                        <p>GPS locations attached to saved emergency reports.</p>
+                    </div>
+                    <div class="map-legend">
+                        <span class="legend-item"><span class="legend-dot"></span>Active location</span>
+                        <span class="legend-item"><span class="legend-dot resolved"></span>Resolved location</span>
+                    </div>
+                </div>
+                <div class="glass-panel map-panel">
+                    <div class="map-toolbar">
+                        <span class="section-caption" id="mapSummary">Waiting for location data…</span>
+                        <button class="button secondary" id="fitMapButton" type="button">⌖ Fit all markers</button>
+                    </div>
+                    <div id="emergencyMap" role="application" aria-label="Map showing emergency GPS locations"></div>
+                    <div class="map-error" id="mapError">The map library could not be loaded. Check your internet connection and reload this page. Alert reports will still load.</div>
+                </div>
+            </section>
+
+            <section id="alerts-section">
+                <div class="section-heading">
+                    <div>
+                        <h2>Emergency alert reports</h2>
+                        <p>Search, filter and review reports received by the API.</p>
+                    </div>
+                    <div class="alert-tools">
+                        <input class="field search-field" id="alertSearch" type="search" placeholder="Search alert ID or severity…" aria-label="Search alerts">
+                        <select class="field" id="statusFilter" aria-label="Filter alerts">
+                            <option value="ALL">All alerts</option>
+                            <option value="ACTIVE">Active only</option>
+                            <option value="RESOLVED">Resolved only</option>
+                            <option value="CRITICAL">Critical only</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="alert-list" id="alerts" aria-live="polite">
+                    <div class="empty-state">Connecting to the ResQlink API…</div>
+                </div>
+            </section>
+
+            <section id="admin-section">
+                <div class="section-heading">
+                    <div>
+                        <h2>Administrator access</h2>
+                        <p>Enter the server-side admin token to enable protected resolve actions.</p>
+                    </div>
+                </div>
+                <div class="glass-panel admin-panel">
+                    <div class="admin-copy">
+                        <h3>Protected alert management</h3>
+                        <p>The token is kept in this browser tab's session storage and is sent only when resolving an alert. Never paste your token into source code or share it publicly.</p>
+                    </div>
+                    <form class="admin-controls" id="adminForm">
+                        <input class="field admin-input" id="adminTokenInput" type="password" autocomplete="off" placeholder="Administrator bearer token" aria-label="Administrator token">
+                        <button class="button" type="submit">Save token</button>
+                        <button class="button secondary" id="clearTokenButton" type="button">Clear</button>
+                    </form>
+                    <p class="admin-status" id="adminStatus">No administrator token entered in this tab.</p>
+                </div>
+            </section>
+
+            <p class="footer-note">RESQLINK DEMO • Emergency reporting and location visualisation prototype • Not connected to public emergency dispatch systems.</p>
+        </main>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+    <script>
+        "use strict";
+
+        const API_BASE = "http://127.0.0.1:8000";
+        const ADMIN_TOKEN_KEY = "resqlinkAdminToken";
+        const REFRESH_INTERVAL_MS = 10000;
+
+        const elements = {
+            total: document.getElementById("total"),
+            critical: document.getElementById("critical"),
+            active: document.getElementById("active"),
+            resolved: document.getElementById("resolved"),
+            alerts: document.getElementById("alerts"),
+            apiStatus: document.getElementById("apiStatus"),
+            apiDot: document.getElementById("apiDot"),
+            mapSummary: document.getElementById("mapSummary"),
+            mapError: document.getElementById("mapError"),
+            search: document.getElementById("alertSearch"),
+            filter: document.getElementById("statusFilter"),
+            refreshButton: document.getElementById("refreshButton"),
+            fitMapButton: document.getElementById("fitMapButton"),
+            adminForm: document.getElementById("adminForm"),
+            adminTokenInput: document.getElementById("adminTokenInput"),
+            adminStatus: document.getElementById("adminStatus"),
+            clearTokenButton: document.getElementById("clearTokenButton"),
+            liveClock: document.getElementById("liveClock")
+        };
+
+        let allAlerts = [];
+        let isLoading = false;
+        let hasFittedMap = false;
+        let map = null;
+        let markerLayer = null;
+
+        function setApiStatus(state, message) {
+            elements.apiStatus.textContent = message;
+            elements.apiDot.classList.remove("online", "offline");
+            if (state === "online") elements.apiDot.classList.add("online");
+            if (state === "offline") elements.apiDot.classList.add("offline");
+        }
+
+        function updateClock() {
+            elements.liveClock.textContent = new Date().toLocaleTimeString([], {
+                hour: "2-digit", minute: "2-digit", second: "2-digit"
+            });
+        }
+
+        function initialiseMap() {
+            if (typeof L === "undefined") {
+                elements.mapError.style.display = "block";
+                elements.mapSummary.textContent = "Map unavailable";
+                return;
+            }
+
+            map = L.map("emergencyMap", { scrollWheelZoom: true }).setView([20.5937, 78.9629], 5);
+
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                maxZoom: 19,
+                attribution: "&copy; OpenStreetMap contributors"
+            }).addTo(map);
+
+            if (typeof L.markerClusterGroup === "function") {
+                markerLayer = L.markerClusterGroup({
+                    showCoverageOnHover: false,
+                    spiderfyOnMaxZoom: true,
+                    maxClusterRadius: 48
+                });
+            } else {
+                markerLayer = L.featureGroup();
+            }
+
+            markerLayer.addTo(map);
+        }
+
+        function getValidCoordinates(alert) {
+            const latitude = Number(alert.latitude);
+            const longitude = Number(alert.longitude);
+            if (alert.latitude === null || alert.latitude === undefined || alert.longitude === null || alert.longitude === undefined) return null;
+            if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+            if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+            return { latitude, longitude };
+        }
+
+        function addMarkers(alerts) {
+            if (!map || !markerLayer) return;
+            markerLayer.clearLayers();
+            let locationsCount = 0;
+
+            alerts.forEach(alert => {
+                const coordinates = getValidCoordinates(alert);
+                if (!coordinates) return;
+
+                locationsCount += 1;
+                const marker = L.marker([coordinates.latitude, coordinates.longitude]);
+                const popup = document.createElement("div");
+                const title = document.createElement("strong");
+                title.textContent = `Alert #${alert.id} — ${alert.label || "Emergency"}`;
+                const detail = document.createElement("div");
+                detail.textContent = `Severity: ${alert.severity}/5 · Priority: ${alert.priority} · ${alert.status}`;
+                popup.append(title, detail);
+                marker.bindPopup(popup);
+                markerLayer.addLayer(marker);
+            });
+
+            elements.mapSummary.textContent = `${locationsCount} alert location${locationsCount === 1 ? "" : "s"} plotted on the map`;
+
+            if (locationsCount > 0 && !hasFittedMap) {
+                fitAllMarkers();
+                hasFittedMap = true;
+            }
+        }
+
+        function fitAllMarkers() {
+            if (!map || !markerLayer || markerLayer.getLayers().length === 0) return;
+            const bounds = markerLayer.getBounds();
+            if (bounds.isValid()) {
+                map.fitBounds(bounds, { padding: [35, 35], maxZoom: 14 });
+            }
+        }
+
+        function formatDate(value) {
+            if (!value) return "Time unavailable";
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return String(value);
+            return date.toLocaleString();
+        }
+
+        function makeTag(text, className) {
+            const tag = document.createElement("span");
+            tag.className = `tag ${className || ""}`.trim();
+            tag.textContent = text;
+            return tag;
+        }
+
+        function renderAlerts() {
+            const searchText = elements.search.value.trim().toLowerCase();
+            const filterValue = elements.filter.value;
+
+            const filteredAlerts = allAlerts.filter(alert => {
+                const status = String(alert.status || "ACTIVE").toUpperCase();
+                const label = String(alert.label || "").toLowerCase();
+                const id = String(alert.id ?? "").toLowerCase();
+                const severityText = `severity ${alert.severity}`;
+                const matchesSearch = !searchText || id.includes(searchText) || label.includes(searchText) || severityText.includes(searchText);
+                const matchesFilter = filterValue === "ALL"
+                    || (filterValue === "CRITICAL" && Number(alert.severity) === 5)
+                    || status === filterValue;
+                return matchesSearch && matchesFilter;
+            });
+
+            elements.alerts.replaceChildren();
+
+            if (filteredAlerts.length === 0) {
+                const empty = document.createElement("div");
+                empty.className = "empty-state";
+                empty.textContent = allAlerts.length === 0
+                    ? "No emergency alerts have been recorded yet."
+                    : "No alerts match the selected search or filter.";
+                elements.alerts.appendChild(empty);
+                return;
+            }
+
+            filteredAlerts.forEach(alert => {
+                const status = String(alert.status || "ACTIVE").toUpperCase();
+                const isResolved = status === "RESOLVED";
+                const card = document.createElement("article");
+                card.className = `alert-card${isResolved ? " resolved" : ""}`;
+
+                const mainRow = document.createElement("div");
+                mainRow.className = "alert-main-row";
+
+                const title = document.createElement("h3");
+                title.className = "alert-title";
+                title.textContent = `Alert #${alert.id} — ${alert.label || "Emergency"}`;
+                mainRow.appendChild(title);
+
+                const statusTag = makeTag(status, isResolved ? "resolved" : "active");
+                mainRow.appendChild(statusTag);
+
+                const meta = document.createElement("div");
+                meta.className = "alert-meta";
+                const severity = Number(alert.severity);
+                const severityClass = severity === 5 ? "critical" : severity >= 3 ? "high" : "";
+                meta.append(
+                    makeTag(`Severity ${alert.severity}/5`, severityClass),
+                    makeTag(`Priority ${alert.priority}`, ""),
+                    makeTag(isResolved ? "Resolved" : "Awaiting resolution", isResolved ? "resolved" : "active")
+                );
+
+                const time = document.createElement("p");
+                time.className = "alert-time";
+                time.textContent = `Reported: ${formatDate(alert.created_at)}`;
+
+                const actions = document.createElement("div");
+                actions.className = "alert-actions";
+
+                const coordinates = getValidCoordinates(alert);
+                if (coordinates) {
+                    const locationLink = document.createElement("a");
+                    locationLink.className = "map-link";
+                    locationLink.href = `https://www.google.com/maps?q=${encodeURIComponent(coordinates.latitude)},${encodeURIComponent(coordinates.longitude)}`;
+                    locationLink.target = "_blank";
+                    locationLink.rel = "noopener noreferrer";
+                    locationLink.textContent = "↗ View location on Google Maps";
+                    actions.appendChild(locationLink);
+                } else {
+                    const noLocation = document.createElement("span");
+                    noLocation.className = "section-caption";
+                    noLocation.textContent = "GPS location unavailable";
+                    actions.appendChild(noLocation);
+                }
+
+                if (!isResolved) {
+                    const resolveButton = document.createElement("button");
+                    resolveButton.className = "button resolve";
+                    resolveButton.type = "button";
+                    resolveButton.textContent = "✓ Resolve alert";
+                    resolveButton.addEventListener("click", () => resolveEmergency(alert.id, resolveButton));
+                    actions.appendChild(resolveButton);
+                }
+
+                card.append(mainRow, meta, time, actions);
+                elements.alerts.appendChild(card);
+            });
+        }
+
+        async function resolveEmergency(alertId, button) {
+            const adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY);
+            if (!adminToken) {
+                elements.adminStatus.textContent = "Enter your administrator token below before resolving alerts.";
+                elements.adminStatus.className = "admin-status warn";
+                elements.adminTokenInput.focus();
+                document.getElementById("admin-section").scrollIntoView({ behavior: "smooth", block: "center" });
+                return;
+            }
+
+            button.disabled = true;
+            button.textContent = "Resolving…";
+
+            try {
+                const response = await fetch(`${API_BASE}/emergency/${encodeURIComponent(alertId)}/resolve`, {
+                    method: "PATCH",
+                    headers: { "Authorization": `Bearer ${adminToken}` }
+                });
+
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    if (response.status === 401 || response.status === 403) {
+                        sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+                        updateAdminStatus("Token rejected. Check your administrator token and save it again.", "error");
+                    }
+                    throw new Error(result.detail || `Request failed (${response.status})`);
+                }
+
+                await loadAlerts(true);
+            } catch (error) {
+                button.disabled = false;
+                button.textContent = "Retry resolve";
+                window.alert(`Could not resolve alert #${alertId}: ${error.message}`);
+            }
+        }
+
+        async function loadAlerts(manual = false) {
+            if (isLoading) return;
+            isLoading = true;
+            elements.refreshButton.disabled = true;
+            if (manual) elements.refreshButton.textContent = "↻ Refreshing…";
+
+            try {
+                const response = await fetch(`${API_BASE}/emergencies`, { cache: "no-store" });
+                if (!response.ok) throw new Error(`API returned ${response.status}`);
+
+                const data = await response.json();
+                if (!data || !Array.isArray(data.emergencies)) {
+                    throw new Error("Unexpected response from /emergencies. Expected an emergencies array.");
+                }
+
+                allAlerts = data.emergencies;
+                elements.total.textContent = Number.isFinite(Number(data.count)) ? Number(data.count) : allAlerts.length;
+                elements.critical.textContent = allAlerts.filter(alert => Number(alert.severity) === 5).length;
+                elements.active.textContent = allAlerts.filter(alert => String(alert.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
+                elements.resolved.textContent = allAlerts.filter(alert => String(alert.status || "").toUpperCase() === "RESOLVED").length;
+
+                addMarkers(allAlerts);
+                renderAlerts();
+                setApiStatus("online", "API connected");
+            } catch (error) {
+                setApiStatus("offline", "API unavailable");
+                if (allAlerts.length === 0) {
+                    elements.alerts.replaceChildren();
+                    const message = document.createElement("div");
+                    message.className = "error-state";
+                    message.textContent = `Could not load emergency reports: ${error.message}. Check that FastAPI is running at ${API_BASE}.`;
+                    elements.alerts.appendChild(message);
+                }
+            } finally {
+                isLoading = false;
+                elements.refreshButton.disabled = false;
+                elements.refreshButton.textContent = "↻ Refresh alerts";
+            }
+        }
+
+        function updateAdminStatus(message, kind = "") {
+            elements.adminStatus.textContent = message;
+            elements.adminStatus.className = `admin-status ${kind}`.trim();
+        }
+
+        elements.refreshButton.addEventListener("click", () => loadAlerts(true));
+        elements.fitMapButton.addEventListener("click", fitAllMarkers);
+        elements.search.addEventListener("input", renderAlerts);
+        elements.filter.addEventListener("change", renderAlerts);
+
+        elements.adminForm.addEventListener("submit", event => {
+            event.preventDefault();
+            const token = elements.adminTokenInput.value.trim();
+            if (!token) {
+                updateAdminStatus("Please enter the administrator token first.", "warn");
+                return;
+            }
+            sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+            elements.adminTokenInput.value = "";
+            updateAdminStatus("Administrator token saved for this browser tab. The server will verify it when you resolve an alert.", "ok");
+        });
+
+        elements.clearTokenButton.addEventListener("click", () => {
+            sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+            elements.adminTokenInput.value = "";
+            updateAdminStatus("Administrator token cleared from this browser tab.", "warn");
+        });
+
+        // Highlight the navigation item for the section currently in view.
+        document.querySelectorAll(".nav-link").forEach(link => {
+            link.addEventListener("click", () => {
+                document.querySelectorAll(".nav-link").forEach(item => item.classList.remove("active"));
+                link.classList.add("active");
+            });
+        });
+
+        initialiseMap();
+        updateClock();
+        setInterval(updateClock, 1000);
+        loadAlerts();
+        setInterval(() => loadAlerts(false), REFRESH_INTERVAL_MS);
+
+        if (sessionStorage.getItem(ADMIN_TOKEN_KEY)) {
+            updateAdminStatus("Administrator token is available in this browser tab. The server will verify it when used.", "ok");
+        }
+    </script>
+</body>
+</html>
