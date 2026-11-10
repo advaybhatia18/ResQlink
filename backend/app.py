@@ -1,4 +1,3 @@
-import hmac
 import os
 import re
 from pathlib import Path
@@ -7,7 +6,8 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from httpx import HTTPError
+from pydantic import BaseModel, ConfigDict, Field
 from supabase_auth.errors import AuthApiError
 
 from emergency_engine import process_emergency
@@ -28,8 +28,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-security = HTTPBearer()
-ADMIN_TOKEN = os.getenv("RESQLINK_ADMIN_TOKEN")
+security = HTTPBearer(auto_error=False)
 allowed_origins = [
     origin.strip().rstrip("/")
     for origin in os.getenv(
@@ -50,9 +49,11 @@ app.add_middleware(
 
 
 class EmergencyRequest(BaseModel):
-    severity: int = Field(ge=1, le=5)
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
+    model_config = ConfigDict(extra="forbid")
+
+    severity: int = Field(strict=True, ge=1, le=5)
+    latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
 
 
 class RegisterRequest(BaseModel):
@@ -66,46 +67,74 @@ class LoginRequest(BaseModel):
     password: str
 
 
-def require_admin(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+def get_authenticated_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security)
 ):
-    if not ADMIN_TOKEN:
+    if credentials is None:
         raise HTTPException(
-            status_code=503,
-            detail="Admin authentication is not configured"
+            status_code=401,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"}
         )
 
-    if not hmac.compare_digest(credentials.credentials, ADMIN_TOKEN):
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid administrator token"
-        )
-
-    return True
-
-
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-):
     try:
         response = get_auth_client().auth.get_user(credentials.credentials)
     except AuthApiError as error:
         if error.status in (400, 401, 403):
             raise HTTPException(
                 status_code=401,
-                detail="Invalid or expired authentication token"
+                detail="Invalid or expired authentication token",
+                headers={"WWW-Authenticate": "Bearer"}
             ) from error
         raise HTTPException(
             status_code=503,
             detail="Could not verify the Supabase access token"
         ) from error
+    except HTTPError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Supabase authentication is temporarily unavailable"
+        ) from error
 
-    if not response.user:
+    user = response.user
+    if user is None or not user.id:
         raise HTTPException(
             status_code=401,
-            detail="Invalid or expired authentication token"
+            detail="Invalid or expired authentication token",
+            headers={"WWW-Authenticate": "Bearer"}
         )
-    return response.user
+
+    profile = get_user_profile(user.id)
+    if not profile or profile.get("id") != user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="A valid ResQlink profile is required"
+        )
+
+    role = profile.get("role")
+    if role not in {"USER", "ADMIN"}:
+        raise HTTPException(
+            status_code=403,
+            detail="The ResQlink profile has no authorized role"
+        )
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": profile["name"],
+        "role": role,
+    }
+
+
+def require_admin(
+    current_user: dict = Depends(get_authenticated_user)
+):
+    if current_user["role"] != "ADMIN":
+        raise HTTPException(
+            status_code=403,
+            detail="Administrator role required"
+        )
+    return current_user
 
 
 @app.get("/")
@@ -117,12 +146,15 @@ def home():
 
 
 @app.post("/emergency")
-def create_emergency(request: EmergencyRequest):
+def create_emergency(
+    request: EmergencyRequest,
+    current_user: dict = Depends(get_authenticated_user)
+):
     result = process_emergency(request.severity)
     result["latitude"] = request.latitude
     result["longitude"] = request.longitude
 
-    alert_id = save_alert(result)
+    alert_id = save_alert(result, current_user["id"])
     return {
         "message": "Emergency saved successfully",
         "alert_id": alert_id,
@@ -130,7 +162,7 @@ def create_emergency(request: EmergencyRequest):
     }
 
 
-@app.get("/emergencies")
+@app.get("/emergencies", dependencies=[Depends(require_admin)])
 def list_emergencies():
     alerts = get_alerts()
     return {
@@ -139,11 +171,22 @@ def list_emergencies():
     }
 
 
-@app.patch("/emergency/{alert_id}/resolve")
-def resolve_emergency(
-    alert_id: int,
-    admin: bool = Depends(require_admin)
+@app.get("/emergencies/me")
+def list_my_emergencies(
+    current_user: dict = Depends(get_authenticated_user)
 ):
+    alerts = get_alerts(current_user["id"])
+    return {
+        "count": len(alerts),
+        "emergencies": alerts
+    }
+
+
+@app.patch(
+    "/emergency/{alert_id}/resolve",
+    dependencies=[Depends(require_admin)]
+)
+def resolve_emergency(alert_id: int):
     updated = resolve_alert(alert_id)
     if not updated:
         raise HTTPException(
@@ -258,17 +301,10 @@ def login_user(request: LoginRequest):
 
 
 @app.get("/me")
-def get_my_account(current_user=Depends(get_current_user)):
-    profile = get_user_profile(current_user.id)
-    if not profile:
-        raise HTTPException(
-            status_code=503,
-            detail="Supabase user profile is missing; apply supabase/schema.sql"
-        )
-
+def get_my_account(current_user=Depends(get_authenticated_user)):
     return {
-        "id": current_user.id,
-        "name": profile["name"],
-        "email": current_user.email,
-        "role": profile["role"]
+        "id": current_user["id"],
+        "name": current_user["name"],
+        "email": current_user["email"],
+        "role": current_user["role"]
     }

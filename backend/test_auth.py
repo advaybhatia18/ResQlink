@@ -1,0 +1,275 @@
+import sys
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
+from supabase_auth.errors import AuthApiError
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import app as resqlink_app
+
+
+USER_ID = "b2f3ac97-d7c2-48f4-a714-9e0f7abc1234"
+ADMIN_ID = "83c9e76b-27de-4d67-82a4-2ce5aabb5678"
+
+
+class AuthorizationTests(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(resqlink_app.app)
+        self.auth_client = MagicMock()
+        self.auth_client.auth.get_user.side_effect = self.get_auth_user
+        self.auth_client_patch = patch(
+            "app.get_auth_client",
+            return_value=self.auth_client
+        )
+        self.profile_patch = patch(
+            "app.get_user_profile",
+            side_effect=self.get_profile
+        )
+        self.alerts_patch = patch("app.get_alerts", return_value=[])
+        self.save_alert_patch = patch("app.save_alert", return_value=27)
+        self.resolve_alert_patch = patch("app.resolve_alert", return_value=True)
+        self.process_emergency_patch = patch(
+            "app.process_emergency",
+            return_value={"severity": 3, "label": "HIGH", "priority": 60}
+        )
+
+        for patcher in (
+            self.auth_client_patch,
+            self.profile_patch,
+            self.alerts_patch,
+            self.save_alert_patch,
+            self.resolve_alert_patch,
+            self.process_emergency_patch,
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def get_auth_user(token):
+        if token == "invalid":
+            raise AuthApiError("Invalid token", 401, None)
+        if token == "user-token":
+            return SimpleNamespace(
+                user=SimpleNamespace(id=USER_ID, email="user@example.com")
+            )
+        if token == "admin-token":
+            return SimpleNamespace(
+                user=SimpleNamespace(id=ADMIN_ID, email="admin@example.com")
+            )
+        raise AuthApiError("Invalid token", 401, None)
+
+    @staticmethod
+    def get_profile(user_id):
+        profiles = {
+            USER_ID: {"id": USER_ID, "name": "User", "role": "USER"},
+            ADMIN_ID: {"id": ADMIN_ID, "name": "Admin", "role": "ADMIN"},
+        }
+        return profiles.get(user_id)
+
+    @staticmethod
+    def auth(token):
+        return {"Authorization": f"Bearer {token}"}
+
+    def test_missing_token_is_401_for_admin_operations(self):
+        self.assertEqual(self.client.get("/emergencies").status_code, 401)
+        self.assertEqual(
+            self.client.post(
+                "/emergency",
+                json={"severity": 3, "latitude": 12.9, "longitude": 77.5}
+            ).status_code,
+            401
+        )
+        self.assertEqual(
+            self.client.patch("/emergency/27/resolve").status_code,
+            401
+        )
+
+    def test_invalid_token_is_401(self):
+        headers = self.auth("invalid")
+        self.assertEqual(
+            self.client.get("/emergencies", headers=headers).status_code,
+            401
+        )
+        self.assertEqual(
+            self.client.patch(
+                "/emergency/27/resolve",
+                headers=headers
+            ).status_code,
+            401
+        )
+
+    def test_valid_user_can_send_sos_using_server_identity(self):
+        response = self.client.post(
+            "/emergency",
+            headers=self.auth("user-token"),
+            json={
+                "severity": 3,
+                "latitude": 12.9,
+                "longitude": 77.5,
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["alert_id"], 27)
+        account = self.client.get("/me", headers=self.auth("user-token"))
+        self.assertEqual(account.status_code, 200)
+        self.assertEqual(account.json()["role"], "USER")
+        resqlink_app.save_alert.assert_called_once()
+        saved_alert, owner_id = resqlink_app.save_alert.call_args.args
+        self.assertEqual(owner_id, USER_ID)
+        self.assertEqual(saved_alert["severity"], 3)
+
+    def test_valid_admin_can_read_alerts(self):
+        response = self.client.get(
+            "/emergencies",
+            headers=self.auth("admin-token")
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"count": 0, "emergencies": []})
+        resqlink_app.get_alerts.assert_called_once_with()
+
+    def test_user_can_only_request_their_own_alerts(self):
+        own_alert = {
+            "id": 27,
+            "severity": 3,
+            "label": "HIGH",
+            "priority": 60,
+            "status": "ACTIVE",
+            "created_at": "2026-11-10T10:00:00+00:00",
+            "latitude": 12.9,
+            "longitude": 77.5,
+        }
+        resqlink_app.get_alerts.return_value = [own_alert]
+
+        response = self.client.get(
+            "/emergencies/me",
+            headers=self.auth("user-token")
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["emergencies"][0]["id"], 27)
+        self.assertIn("latitude", response.json()["emergencies"][0])
+        resqlink_app.get_alerts.assert_called_once_with(USER_ID)
+
+    def test_owner_scoped_alert_route_requires_authentication(self):
+        response = self.client.get("/emergencies/me")
+        self.assertEqual(response.status_code, 401)
+
+    def test_valid_admin_can_resolve_alert(self):
+        response = self.client.patch(
+            "/emergency/27/resolve",
+            headers=self.auth("admin-token")
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "RESOLVED")
+
+    def test_registration_still_uses_supabase_auth(self):
+        self.auth_client.auth.sign_up.return_value = SimpleNamespace(
+            user=SimpleNamespace(id=USER_ID, email="user@example.com")
+        )
+
+        response = self.client.post(
+            "/register",
+            json={
+                "name": "New User",
+                "email": "USER@example.com",
+                "password": "secure-password"
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["role"], "USER")
+        signup_options = self.auth_client.auth.sign_up.call_args.args[0]
+        self.assertEqual(
+            signup_options["options"]["data"],
+            {"name": "New User"}
+        )
+
+    def test_login_still_returns_supabase_access_token(self):
+        self.auth_client.auth.sign_in_with_password.return_value = SimpleNamespace(
+            user=SimpleNamespace(id=USER_ID, email="user@example.com"),
+            session=SimpleNamespace(access_token="user-token")
+        )
+
+        response = self.client.post(
+            "/login",
+            json={
+                "email": "USER@example.com",
+                "password": "secure-password"
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["access_token"], "user-token")
+        self.assertEqual(response.json()["user"]["role"], "USER")
+
+    def test_user_cannot_access_all_alert_locations(self):
+        response = self.client.get(
+            "/emergencies",
+            headers=self.auth("user-token")
+        )
+        self.assertEqual(response.status_code, 403)
+        resqlink_app.get_alerts.assert_not_called()
+
+    def test_user_cannot_supply_another_owner_or_role(self):
+        headers = self.auth("user-token")
+        for field in ("user_id", "role"):
+            payload = {
+                "severity": 3,
+                "latitude": 12.9,
+                "longitude": 77.5,
+                field: ADMIN_ID if field == "user_id" else "ADMIN",
+            }
+            response = self.client.post(
+                "/emergency",
+                headers=headers,
+                json=payload
+            )
+            self.assertEqual(response.status_code, 422)
+        resqlink_app.save_alert.assert_not_called()
+
+    def test_invalid_emergency_values_are_rejected(self):
+        headers = self.auth("user-token")
+        for severity, latitude, longitude in (
+            (True, 12.9, 77.5),
+            (6, 12.9, 77.5),
+            (3, 91, 77.5),
+            (3, 12.9, 181),
+        ):
+            response = self.client.post(
+                "/emergency",
+                headers=headers,
+                json={
+                    "severity": severity,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                }
+            )
+            self.assertEqual(response.status_code, 422)
+        resqlink_app.save_alert.assert_not_called()
+
+    def test_non_finite_coordinates_are_rejected(self):
+        with self.assertRaises(ValidationError):
+            resqlink_app.EmergencyRequest(
+                severity=3,
+                latitude=12.9,
+                longitude=float("inf")
+            )
+
+    def test_user_cannot_resolve_alert(self):
+        response = self.client.patch(
+            "/emergency/27/resolve",
+            headers=self.auth("user-token")
+        )
+        self.assertEqual(response.status_code, 403)
+        resqlink_app.resolve_alert.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

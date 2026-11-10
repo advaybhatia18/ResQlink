@@ -149,6 +149,13 @@
 
             const button = document.getElementById("sosButton");
             const status = document.getElementById("status");
+            const accessToken = sessionStorage.getItem("resqlink_token");
+
+            if (!accessToken) {
+                status.textContent = "Sign in to send an alert. Redirecting to sign in...";
+                window.location.href = "login.html";
+                return;
+            }
 
             button.disabled = true;
             status.textContent = "Requesting your GPS location...";
@@ -180,7 +187,8 @@
                             {
                                 method: "POST",
                                 headers: {
-                                    "Content-Type": "application/json"
+                                    "Content-Type": "application/json",
+                                    "Authorization": `Bearer ${accessToken}`
                                 },
                                 body: JSON.stringify({
                                     severity: Number(
@@ -195,6 +203,11 @@
                         const data = await response.json();
 
                         if (!response.ok) {
+                            if (response.status === 401) {
+                                sessionStorage.removeItem("resqlink_token");
+                                sessionStorage.removeItem("resqlink_user");
+                                window.location.href = "login.html";
+                            }
                             throw new Error(
                                 data.detail || "Could not save alert"
                             );
