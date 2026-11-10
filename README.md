@@ -21,7 +21,9 @@ priorities. The frontend is made of static HTML pages.
 .
 ├── index.html, login.html, register.html, dashboard.html
 ├── api-config.js            # Frontend API URL; safe to publish
-├── emergency-submit.js      # Authenticated SOS and safe retry flow
+├── emergency.css            # Mobile-first emergency page styles
+├── emergency-api.js         # Authenticated API/session integration
+├── emergency-submit.js      # GPS, submission states, and safe retries
 ├── backend/                 # FastAPI API and Supabase access
 ├── core/                    # C engine source and local Windows DLL
 ├── supabase/schema.sql      # Supabase tables and signup trigger

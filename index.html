@@ -1,292 +1,235 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0a111c">
+    <meta name="description" content="ResQlink emergency reporting demo">
     <title>ResQlink | Emergency Assistance</title>
-
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: Arial, sans-serif;
-        }
-
-        body {
-            min-height: 100vh;
-            background: #101827;
-            color: white;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-
-        .container {
-            width: 100%;
-            max-width: 430px;
-            background: #1d293b;
-            padding: 30px;
-            border-radius: 20px;
-            text-align: center;
-            box-shadow: 0 10px 35px #0006;
-        }
-
-        h1 {
-            color: #ff5252;
-            font-size: 32px;
-            margin-bottom: 8px;
-        }
-
-        .subtitle {
-            color: #b8c4d6;
-            margin-bottom: 30px;
-        }
-
-        label {
-            display: block;
-            text-align: left;
-            margin-bottom: 10px;
-        }
-
-        select {
-            width: 100%;
-            padding: 13px;
-            border-radius: 8px;
-            border: none;
-            margin-bottom: 25px;
-            font-size: 16px;
-        }
-
-        .sos-button {
-            width: 190px;
-            height: 190px;
-            border-radius: 50%;
-            border: 8px solid #ff9999;
-            background: #e53935;
-            color: white;
-            font-size: 32px;
-            font-weight: bold;
-            cursor: pointer;
-            box-shadow: 0 0 25px #e5393580;
-            transition: 0.2s;
-        }
-
-        .sos-button:hover {
-            transform: scale(1.04);
-        }
-
-        .sos-button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .location {
-            margin-top: 30px;
-            padding: 15px;
-            background: #29384d;
-            border-radius: 10px;
-            color: #cbd5e1;
-            line-height: 1.8;
-            overflow-wrap: anywhere;
-        }
-
-        .location-actions {
-            display: grid;
-            gap: 10px;
-            margin-top: 14px;
-        }
-
-        .location-actions button,
-        .sign-in-link {
-            padding: 10px 14px;
-            border: 0;
-            border-radius: 8px;
-            background: #334155;
-            color: white;
-            font-size: 14px;
-            cursor: pointer;
-        }
-
-        .sign-in-link {
-            display: inline-block;
-            margin-top: 12px;
-            text-decoration: none;
-        }
-
-        [hidden] {
-            display: none !important;
-        }
-
-        #status {
-            margin-top: 20px;
-            min-height: 45px;
-            line-height: 1.5;
-            color: #facc15;
-        }
-
-        .note {
-            margin-top: 20px;
-            font-size: 12px;
-            color: #9ca3af;
-        }
-    </style>
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="preconnect" href="https://tile.openstreetmap.org">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <link rel="stylesheet" href="emergency.css">
 </head>
-
 <body>
+    <a class="skip-link" href="#main-content">Skip to emergency form</a>
 
-    <div class="container">
-
-        <h1>ResQlink</h1>
-        <p class="subtitle">Smart Emergency Alert System</p>
-
-        <label for="severity">Select Emergency Severity</label>
-
-        <select id="severity">
-            <option value="1">1 - Low</option>
-            <option value="2">2 - Moderate</option>
-            <option value="3">3 - High</option>
-            <option value="4">4 - Very High</option>
-            <option value="5" selected>5 - Critical</option>
-        </select>
-
-        <button class="sos-button" id="sosButton">
-            SOS
-        </button>
-
-        <div class="location">
-            <strong>GPS Location</strong>
-            <p id="latitude">Latitude: Not detected</p>
-            <p id="longitude">Longitude: Not detected</p>
-            <p id="locationAccuracy">Accuracy: Not measured</p>
-        </div>
-
-        <div class="location-actions" id="locationActions" hidden>
-            <p id="locationMessage" aria-live="polite"></p>
-            <button type="button" id="retryLocationButton">Try GPS again</button>
-            <button type="button" id="useApproximateLocationButton" hidden>
-                Submit with this approximate location
-            </button>
-            <button type="button" id="submitWithoutLocationButton">
-                Deliberately submit without location
-            </button>
-        </div>
-
-        <p id="status" role="status" aria-live="polite">
-            Ready to submit a ResQlink demo alert.
-        </p>
-        <a id="signInLink" class="sign-in-link" href="login.html" hidden>
-            Sign in to submit or retry this alert
+    <header class="topbar">
+        <a class="brand" href="index.html" aria-label="ResQlink home">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 32 32" focusable="false">
+                    <path d="M16 3.5 27 9.8v12.4l-11 6.3-11-6.3V9.8l11-6.3Z"></path>
+                    <path d="M16 9v14M9 16h14"></path>
+                </svg>
+            </span>
+            <span class="brand-copy">
+                <span class="brand-name">ResQlink</span>
+                <span class="brand-caption">EMERGENCY ASSISTANCE</span>
+            </span>
         </a>
 
-        <p class="note">
-            DEMO PROJECT — This application does not contact real emergency services.
-        </p>
+        <details class="account-menu" id="accountMenu">
+            <summary>
+                <span class="account-avatar" id="accountAvatar" aria-hidden="true">—</span>
+                <span class="account-summary">
+                    <span class="account-name" id="headerName">Checking session…</span>
+                    <span class="account-role" id="headerRole">ACCOUNT</span>
+                </span>
+                <svg class="chevron" viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="m5 7 5 5 5-5"></path>
+                </svg>
+            </summary>
+            <div class="account-popover">
+                <p class="popover-eyebrow">SIGNED-IN ACCOUNT</p>
+                <strong id="profileName">Checking session…</strong>
+                <span id="profileEmail">Verifying with ResQlink</span>
+                <span class="role-pill" id="profileRole">—</span>
+                <a class="popover-link" id="responderLink" href="dashboard.html" hidden>
+                    Open responder dashboard
+                    <span aria-hidden="true">↗</span>
+                </a>
+                <button class="logout-button" id="logoutButton" type="button">Sign out</button>
+            </div>
+        </details>
+    </header>
 
-    </div>
+    <main id="main-content" class="page-shell">
+        <section class="intro" aria-labelledby="page-title">
+            <div class="eyebrow"><span class="eyebrow-line"></span> RESQLINK SOS</div>
+            <h1 id="page-title">Emergency<br class="mobile-break"> assistance</h1>
+            <p class="intro-copy">
+                Share an emergency report with your authorized ResQlink responders.
+                Choose a severity, then send your alert.
+            </p>
+        </section>
 
+        <section class="emergency-layout" aria-label="Emergency report">
+            <div class="primary-column">
+                <section class="sos-panel panel" aria-labelledby="sos-heading">
+                    <div class="panel-topline">
+                        <div>
+                            <p class="section-kicker">QUICK ACTION</p>
+                            <h2 id="sos-heading">Send an SOS alert</h2>
+                        </div>
+                        <span class="secure-label">
+                            <svg viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M4.5 7V5a3.5 3.5 0 0 1 7 0v2m-8 0h9v7h-9z"></path>
+                            </svg>
+                            PRIVATE
+                        </span>
+                    </div>
+
+                    <p class="sos-hint" id="sos-hint">
+                        Press once to request GPS and submit. No extra confirmation step.
+                    </p>
+
+                    <div class="sos-action">
+                        <span class="sos-orbit orbit-outer" aria-hidden="true"></span>
+                        <span class="sos-orbit orbit-inner" aria-hidden="true"></span>
+                        <button class="sos-button" id="sosButton" type="button"
+                            aria-describedby="sos-hint statusMessage">
+                            <span class="sos-button-label">SOS</span>
+                            <span class="sos-button-subtitle">SEND ALERT</span>
+                        </button>
+                    </div>
+                    <p class="button-footnote" id="sos-hint">
+                        Your location is included only when your device provides it.
+                    </p>
+
+                    <div class="severity-control">
+                        <label for="severity">Emergency severity</label>
+                        <select id="severity" name="severity">
+                            <option value="1">1 · Low</option>
+                            <option value="2">2 · Moderate</option>
+                            <option value="3">3 · High</option>
+                            <option value="4">4 · Very high</option>
+                            <option value="5" selected>5 · Critical</option>
+                        </select>
+                        <p class="severity-description" id="severityDescription">
+                            Immediate danger or urgent threat to life.
+                        </p>
+                    </div>
+                </section>
+
+                <section class="progress-panel panel" aria-labelledby="progress-heading">
+                    <div class="progress-heading-row">
+                        <div>
+                            <p class="section-kicker">SUBMISSION STATUS</p>
+                            <h2 id="progress-heading">Alert progress</h2>
+                        </div>
+                        <span class="progress-state" id="progressState">READY</span>
+                    </div>
+                    <div class="progress-track" aria-hidden="true">
+                        <span class="progress-fill" id="progressFill"></span>
+                    </div>
+                    <p class="status-message" id="statusMessage" role="status" aria-live="polite">
+                        Ready when you are. Your alert will be sent to the ResQlink demo API.
+                    </p>
+                    <div class="recovery-actions" id="locationActions" hidden>
+                        <button class="secondary-button" type="button" id="retryAuthButton" hidden>
+                            Check session again
+                        </button>
+                        <button class="secondary-button" type="button" id="retryLocationButton">
+                            Try GPS again
+                        </button>
+                        <button class="secondary-button" type="button"
+                            id="useApproximateLocationButton" hidden>
+                            Use approximate location
+                        </button>
+                        <button class="text-button" type="button"
+                            id="submitWithoutLocationButton">
+                            Submit without location
+                        </button>
+                        <button class="discard-button" type="button"
+                            id="discardPendingButton" hidden>
+                            Clear unresolved retry (may create a duplicate)
+                        </button>
+                    </div>
+                    <a class="sign-in-link" id="signInLink" href="login.html" hidden>
+                        Sign in to submit or retry this alert
+                    </a>
+                    <div class="success-summary" id="successPanel" hidden>
+                        <div class="success-icon" aria-hidden="true">✓</div>
+                        <div>
+                            <span class="success-label">RECORDED IN RESQLINK</span>
+                            <strong id="successAlertId">Alert #—</strong>
+                            <time id="successTimestamp"></time>
+                        </div>
+                        <button class="new-alert-button" id="newAlertButton" type="button" hidden>
+                            Start another alert
+                        </button>
+                    </div>
+                </section>
+            </div>
+
+            <aside class="details-column" aria-label="Location and privacy details">
+                <section class="location-panel panel" aria-labelledby="location-heading">
+                    <div class="panel-topline location-title-row">
+                        <div>
+                            <p class="section-kicker">YOUR LOCATION</p>
+                            <h2 id="location-heading">GPS position</h2>
+                        </div>
+                        <span class="gps-indicator" id="gpsIndicator" aria-hidden="true"></span>
+                    </div>
+                    <p class="location-status" id="locationStatus" aria-live="polite">
+                        Not requested
+                    </p>
+                    <div class="coordinate-grid">
+                        <div class="coordinate-cell">
+                            <span>LATITUDE</span>
+                            <strong id="latitude">—</strong>
+                        </div>
+                        <div class="coordinate-cell">
+                            <span>LONGITUDE</span>
+                            <strong id="longitude">—</strong>
+                        </div>
+                    </div>
+                    <div class="accuracy-wrap" id="accuracyWrap" hidden>
+                        <div class="accuracy-heading">
+                            <span>ESTIMATED ACCURACY</span>
+                            <strong id="locationAccuracy">—</strong>
+                        </div>
+                        <div class="accuracy-meter" aria-hidden="true">
+                            <span id="accuracyMeterFill"></span>
+                        </div>
+                    </div>
+                    <div class="map-frame">
+                        <div id="locationMap" role="img"
+                            aria-label="Map preview. No user location has been requested yet."></div>
+                        <div class="map-overlay" id="mapOverlay">
+                            <span class="map-overlay-icon" aria-hidden="true">⌖</span>
+                            <span id="mapMessage">Map preview appears after GPS is available</span>
+                        </div>
+                    </div>
+                    <p class="map-attribution">
+                        Map tiles © <a href="https://www.openstreetmap.org/copyright"
+                            target="_blank" rel="noreferrer">OpenStreetMap</a>
+                    </p>
+                </section>
+
+                <section class="privacy-card" aria-label="Privacy notice">
+                    <span class="privacy-icon" aria-hidden="true">
+                        <svg viewBox="0 0 20 20">
+                            <path d="M10 2.5 16 5v4.7c0 3.7-2.5 6.3-6 7.8-3.5-1.5-6-4.1-6-7.8V5l6-2.5Z"></path>
+                            <path d="m7.4 10 1.7 1.7 3.7-3.8"></path>
+                        </svg>
+                    </span>
+                    <p><strong>Location privacy</strong>Your GPS coordinates go to ResQlink with this alert. OpenStreetMap receives map-tile requests for the previewed area.</p>
+                </section>
+            </aside>
+        </section>
+
+        <footer class="demo-footer">
+            <span class="demo-badge"><span aria-hidden="true">!</span> DEMO / PROTOTYPE</span>
+            <p>This system does not contact real emergency services. For a real emergency, contact your local emergency number directly.</p>
+        </footer>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="api-config.js"></script>
-    <script type="text/plain">
-        async function sendAlert() {
-
-            const button = document.getElementById("sosButton");
-            const status = document.getElementById("status");
-            const accessToken = sessionStorage.getItem("resqlink_token");
-
-            if (!accessToken) {
-                status.textContent = "Sign in to send an alert. Redirecting to sign in...";
-                window.location.href = "login.html";
-                return;
-            }
-
-            button.disabled = true;
-            status.textContent = "Requesting your GPS location...";
-
-            if (!navigator.geolocation) {
-                status.textContent = "GPS is not supported by this browser.";
-                button.disabled = false;
-                return;
-            }
-
-            navigator.geolocation.getCurrentPosition(
-                async function(position) {
-
-                    const latitude = position.coords.latitude;
-                    const longitude = position.coords.longitude;
-
-                    document.getElementById("latitude").textContent =
-                        "Latitude: " + latitude;
-
-                    document.getElementById("longitude").textContent =
-                        "Longitude: " + longitude;
-
-                    status.textContent = "Sending test alert...";
-
-                    try {
-
-                        const response = await fetch(
-                            `${window.RESQLINK_API_URL}/emergency`,
-                            {
-                                method: "POST",
-                                headers: {
-                                    "Content-Type": "application/json",
-                                    "Authorization": `Bearer ${accessToken}`
-                                },
-                                body: JSON.stringify({
-                                    severity: Number(
-                                        document.getElementById("severity").value
-                                    ),
-                                    latitude: latitude,
-                                    longitude: longitude
-                                })
-                            }
-                        );
-
-                        const data = await response.json();
-
-                        if (!response.ok) {
-                            if (response.status === 401) {
-                                sessionStorage.removeItem("resqlink_token");
-                                sessionStorage.removeItem("resqlink_user");
-                                window.location.href = "login.html";
-                            }
-                            throw new Error(
-                                data.detail || "Could not save alert"
-                            );
-                        }
-
-                        status.textContent =
-                            "Test alert saved! Alert ID: " + data.alert_id;
-
-                    } catch (error) {
-
-                        status.textContent =
-                            "Error: " + error.message;
-
-                    } finally {
-                        button.disabled = false;
-                    }
-                },
-
-                function(error) {
-
-                    status.textContent =
-                        "GPS error: " + error.message;
-
-                    button.disabled = false;
-                },
-
-                {
-                    enableHighAccuracy: true,
-                    timeout: 15000,
-                    maximumAge: 0
-                }
-            );
-        }
-    </script>
+    <script src="emergency-api.js"></script>
     <script src="emergency-submit.js"></script>
-
 </body>
 </html>
