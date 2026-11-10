@@ -14,11 +14,23 @@ priorities. The frontend is made of static HTML pages.
 - Store alerts and user profiles in Supabase Postgres.
 - Authenticate accounts and API access tokens with Supabase Auth.
 
-## Requirements
+## Project layout
 
-- Windows (the included emergency engine is `core/emergency64.dll`).
-- Python 3.10 or later.
-- A modern browser and, optionally, the VS Code Live Server extension.
+```text
+.
+├── index.html, login.html, register.html, dashboard.html
+├── api-config.js            # Frontend API URL; safe to publish
+├── backend/                 # FastAPI API and Supabase access
+├── core/                    # C engine source and local Windows DLL
+├── supabase/schema.sql      # Supabase tables and signup trigger
+├── .github/workflows/       # GitHub Pages deployment
+├── render.yaml              # Render API deployment
+├── requirements.txt
+└── .env.example
+```
+
+GitHub Pages hosts only the static HTML and JavaScript. The FastAPI backend
+must run separately; this repository includes a Render deployment blueprint.
 
 ## Setup on Windows
 
@@ -66,12 +78,43 @@ python -m uvicorn app:app --reload
 The API is available at <http://127.0.0.1:8000> and its interactive API
 documentation is at <http://127.0.0.1:8000/docs>.
 
-In a second terminal, start a static server from the project root, for example
-with VS Code Live Server, and open `frontend/index.html`. Live Server's default
-address (`http://127.0.0.1:5500`) is allowed by the API's CORS configuration.
-The other frontend pages are `frontend/login.html`,
-`frontend/register.html`, and `frontend/dashboard.html`. GPS access requires
-browser permission.
+In a second terminal, serve the repository root with VS Code Live Server and
+open `index.html`. The other pages are `login.html`, `register.html`, and
+`dashboard.html`. GPS access requires browser permission.
+
+## Deploy
+
+### GitHub Pages frontend
+
+1. Push the repository to GitHub's `main` branch.
+2. In the repository, open **Settings > Pages** and set the source to
+   **GitHub Actions**.
+3. Set `window.RESQLINK_API_URL` in `api-config.js` to the deployed backend
+   base URL (for example, `https://resqlink-api.onrender.com`) and push the
+   change. Do not add a trailing slash.
+4. The workflow at `.github/workflows/pages.yml` deploys the root-level static
+   pages. The site URL is shown under **Settings > Pages**.
+
+### FastAPI backend on Render
+
+1. Create a new Render Blueprint and select this repository. Render reads
+   `render.yaml`; the blueprint compiles the C emergency engine for Linux.
+2. Set `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and
+   `RESQLINK_ADMIN_TOKEN` in the Render dashboard when prompted. Keep the
+   service-role key private.
+3. Set `FRONTEND_ORIGINS` to the exact origin of your Pages site, for example
+   `https://advaybhatia18.github.io`. Origins have no path or trailing slash.
+   The provided Render value includes the default repository's Pages origin
+   plus localhost origins for development.
+4. Copy the Render service URL into `api-config.js`, then push to `main`.
+
+The configured Supabase project must have the tables and signup trigger from
+[`supabase/schema.sql`](./supabase/schema.sql). For a custom Pages domain,
+update `FRONTEND_ORIGINS` in Render to match its `https://` origin.
+
+GitHub Pages cannot serve Python, run the C engine, or hold backend secrets.
+Never put Supabase service-role keys or the admin token in `api-config.js` or
+any other frontend file.
 
 The dashboard asks for the administrator token configured as
 `RESQLINK_ADMIN_TOKEN`. User registration and sign-in use Supabase Auth; the
@@ -95,7 +138,7 @@ API validates Supabase access tokens and reads profile data from Postgres.
   setup before using the API.
 - Keep `.env` and its secrets out of source control. Use distinct secrets for
   every deployment and do not use development settings for a public service.
+- The default frontend API URL is for local development; point
+  `api-config.js` to the deployed API before using the GitHub Pages site.
 - Existing accounts and alerts in `database/resqlink.db` are not migrated
   automatically; export/import them separately if they need to be retained.
-- The frontend currently targets `http://127.0.0.1:8000`, and CORS is
-  configured for the default local Live Server addresses.

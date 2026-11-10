@@ -1,11 +1,18 @@
 
 import ctypes
+import os
 from pathlib import Path
+import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DLL_PATH = PROJECT_ROOT / "core" / "emergency64.dll"
+if os.name == "nt":
+    ENGINE_PATH = PROJECT_ROOT / "core" / "emergency64.dll"
+elif sys.platform == "darwin":
+    ENGINE_PATH = PROJECT_ROOT / "core" / "libemergency.dylib"
+else:
+    ENGINE_PATH = PROJECT_ROOT / "core" / "libemergency.so"
 
-engine = ctypes.CDLL(str(DLL_PATH))
+engine = ctypes.CDLL(str(ENGINE_PATH))
 
 engine.calculate_priority.argtypes = [ctypes.c_int]
 engine.calculate_priority.restype = ctypes.c_int

@@ -734,10 +734,11 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
+    <script src="api-config.js"></script>
     <script>
         "use strict";
 
-        const API_BASE = "http://127.0.0.1:8000";
+        const API_BASE = window.RESQLINK_API_URL;
         const ADMIN_TOKEN_KEY = "resqlinkAdminToken";
         const REFRESH_INTERVAL_MS = 10000;
 

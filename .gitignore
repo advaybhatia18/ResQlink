@@ -14,6 +14,9 @@ database/*.db
 *.log
 build-log.txt
 gcc-error.txt
+core/libemergency.so
+core/libemergency.dylib
+_site/
 
 # Editor and operating-system files
 .vscode/

@@ -143,6 +143,7 @@
 
     </div>
 
+    <script src="api-config.js"></script>
     <script>
         async function sendAlert() {
 
@@ -175,7 +176,7 @@
                     try {
 
                         const response = await fetch(
-                            "http://127.0.0.1:8000/emergency",
+                            `${window.RESQLINK_API_URL}/emergency`,
                             {
                                 method: "POST",
                                 headers: {
