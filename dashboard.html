@@ -31,6 +31,7 @@
         }
 
         * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
 
         html { scroll-behavior: smooth; }
 
@@ -532,8 +533,6 @@
 
         .admin-copy h3 { margin: 0 0 5px; color: var(--text); font-size: 13px; }
         .admin-copy p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
-        .admin-controls { display: flex; gap: 8px; flex-wrap: wrap; }
-        .admin-input { width: min(290px, 48vw); }
         .admin-status { grid-column: 1 / -1; min-height: 15px; margin: 0; color: var(--muted); font-size: 10px; }
         .admin-status.ok { color: var(--green); }
         .admin-status.warn { color: var(--amber); }
@@ -577,8 +576,6 @@
             .alert-tools { width: 100%; }
             .search-field { flex: 1; width: 100%; }
             .admin-panel { grid-template-columns: 1fr; }
-            .admin-controls { width: 100%; }
-            .admin-input { flex: 1; width: 100%; }
             .alert-main-row { flex-direction: column; }
         }
 
@@ -607,7 +604,7 @@
             <p class="nav-label">Command centre</p>
             <nav class="nav-list" aria-label="Dashboard navigation">
                 <a class="nav-link active" href="#overview"><span class="nav-icon">▦</span>Overview</a>
-                <a class="nav-link" href="#map-section"><span class="nav-icon">◎</span>Live emergency map</a>
+                <a class="nav-link" href="#map-section"><span class="nav-icon">◎</span>Emergency alert map</a>
                 <a class="nav-link" href="#alerts-section"><span class="nav-icon">⚑</span>Alert reports</a>
                 <a class="nav-link" href="#admin-section"><span class="nav-icon">⌑</span>Administrator status</a>
             </nav>
@@ -633,34 +630,35 @@
                 </div>
             </header>
 
+            <div id="dashboardData" hidden>
             <section aria-label="Emergency statistics">
                 <div class="welcome-row">
                     <div>
-                        <p class="eyebrow">Live overview</p>
-                        <p class="section-caption">A real-time view of emergency reports received by the ResQlink prototype.</p>
+                        <p class="eyebrow">Authorized overview</p>
+                        <p class="section-caption">Reports and locations returned by the ResQlink API for this administrator session.</p>
                     </div>
                 </div>
 
                 <div class="stats-grid">
                     <article class="glass-panel stat-card" style="--accent: var(--cyan); --glow: rgba(54,230,239,.15)">
-                        <div class="stat-top"><span class="stat-label">Total alerts</span><span class="stat-icon">▤</span></div>
+                        <div class="stat-top"><span class="stat-label">Matching alerts</span><span class="stat-icon">▤</span></div>
                         <div class="stat-value" id="total">—</div>
-                        <div class="stat-foot">All recorded reports</div>
+                        <div class="stat-foot">Current search and filters</div>
                     </article>
                     <article class="glass-panel stat-card" style="--accent: var(--red); --glow: rgba(255,82,109,.15)">
                         <div class="stat-top"><span class="stat-label">Critical alerts</span><span class="stat-icon">!</span></div>
                         <div class="stat-value" id="critical">—</div>
-                        <div class="stat-foot">Severity level 5</div>
+                        <div class="stat-foot">Matching severity level 5</div>
                     </article>
                     <article class="glass-panel stat-card" style="--accent: var(--amber); --glow: rgba(255,191,105,.14)">
                         <div class="stat-top"><span class="stat-label">Active alerts</span><span class="stat-icon">◉</span></div>
                         <div class="stat-value" id="active">—</div>
-                        <div class="stat-foot">Awaiting resolution</div>
+                        <div class="stat-foot">Matching active reports</div>
                     </article>
                     <article class="glass-panel stat-card" style="--accent: var(--green); --glow: rgba(56,223,172,.14)">
                         <div class="stat-top"><span class="stat-label">Resolved alerts</span><span class="stat-icon">✓</span></div>
                         <div class="stat-value" id="resolved">—</div>
-                        <div class="stat-foot">Marked as resolved</div>
+                        <div class="stat-foot">Matching resolved reports</div>
                     </article>
                 </div>
             </section>
@@ -668,7 +666,7 @@
             <section id="map-section">
                 <div class="section-heading">
                     <div>
-                        <h2>Live emergency map</h2>
+                        <h2>Emergency alert map</h2>
                         <p>GPS locations attached to saved emergency reports.</p>
                     </div>
                     <div class="map-legend">
@@ -693,12 +691,19 @@
                         <p>Search, filter and review reports received by the API.</p>
                     </div>
                     <div class="alert-tools">
-                        <input class="field search-field" id="alertSearch" type="search" placeholder="Search alert ID or severity…" aria-label="Search alerts">
-                        <select class="field" id="statusFilter" aria-label="Filter alerts">
-                            <option value="ALL">All alerts</option>
+                        <input class="field search-field" id="alertSearch" type="search" maxlength="100" placeholder="Search ID, severity, status, or time…" aria-label="Search alerts">
+                        <select class="field" id="severityFilter" aria-label="Filter by severity">
+                            <option value="ALL">All severities</option>
+                            <option value="1">Severity 1</option>
+                            <option value="2">Severity 2</option>
+                            <option value="3">Severity 3</option>
+                            <option value="4">Severity 4</option>
+                            <option value="5">Severity 5</option>
+                        </select>
+                        <select class="field" id="statusFilter" aria-label="Filter by status">
+                            <option value="ALL">All statuses</option>
                             <option value="ACTIVE">Active only</option>
                             <option value="RESOLVED">Resolved only</option>
-                            <option value="CRITICAL">Critical only</option>
                         </select>
                     </div>
                 </div>
@@ -706,21 +711,22 @@
                     <div class="empty-state">Connecting to the ResQlink API…</div>
                 </div>
             </section>
+            </div>
 
             <section id="admin-section">
                 <div class="section-heading">
                     <div>
-                        <h2>Administrator access</h2>
-                        <p>Alert locations and responder operations are restricted to administrator accounts.</p>
+                        <h2>Access status</h2>
+                        <p>Alert data is available only after the backend authorizes an administrator session.</p>
                     </div>
                 </div>
                 <div class="glass-panel admin-panel">
                     <div class="admin-copy">
-                        <h3>Supabase account authorization</h3>
-                        <p>Sign in with your ResQlink account. The API checks your Supabase identity and database profile role before returning alert locations or allowing resolution.</p>
+                        <h3>Administrator authorization</h3>
+                        <p id="adminDescription">Sign in with an administrator account. The backend verifies your role before returning alert data or resolving alerts.</p>
                     </div>
-                    <a class="button" href="login.html?next=dashboard.html">Sign in</a>
-                    <p class="admin-status" id="adminStatus" role="status" aria-live="polite">Checking administrator access…</p>
+                    <a class="button" id="signInLink" href="login.html?next=dashboard.html">Sign in</a>
+                    <p class="admin-status" id="adminStatus" role="status" aria-live="polite">Checking session…</p>
                 </div>
             </section>
 
@@ -736,9 +742,9 @@
     <script>
         "use strict";
 
-        const API_BASE = window.RESQLINK_API_URL;
         const auth = window.ResqlinkAuth;
         const REFRESH_INTERVAL_MS = 10000;
+        const SEARCH_DEBOUNCE_MS = 250;
 
         const elements = {
             total: document.getElementById("total"),
@@ -750,21 +756,27 @@
             apiDot: document.getElementById("apiDot"),
             mapSummary: document.getElementById("mapSummary"),
             mapError: document.getElementById("mapError"),
+            dashboardData: document.getElementById("dashboardData"),
             search: document.getElementById("alertSearch"),
-            filter: document.getElementById("statusFilter"),
+            severityFilter: document.getElementById("severityFilter"),
+            statusFilter: document.getElementById("statusFilter"),
             refreshButton: document.getElementById("refreshButton"),
             fitMapButton: document.getElementById("fitMapButton"),
             adminStatus: document.getElementById("adminStatus"),
+            signInLink: document.getElementById("signInLink"),
             liveClock: document.getElementById("liveClock"),
             logoutButton: document.getElementById("logoutButton")
         };
 
         let allAlerts = [];
-        let isLoading = false;
         let hasFittedMap = false;
         let map = null;
         let markerLayer = null;
         let sessionReady = false;
+        let isAuthorized = false;
+        let latestRequestId = 0;
+        let searchTimer = null;
+        let refreshInterval = null;
 
         function setApiStatus(state, message) {
             elements.apiStatus.textContent = message;
@@ -807,9 +819,12 @@
         }
 
         function getValidCoordinates(alert) {
-            const latitude = Number(alert.latitude);
-            const longitude = Number(alert.longitude);
-            if (alert.latitude === null || alert.latitude === undefined || alert.longitude === null || alert.longitude === undefined) return null;
+            if (
+                typeof alert.latitude !== "number"
+                || typeof alert.longitude !== "number"
+            ) return null;
+            const latitude = alert.latitude;
+            const longitude = alert.longitude;
             if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
             if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
             return { latitude, longitude };
@@ -853,9 +868,9 @@
         }
 
         function formatDate(value) {
-            if (!value) return "Time unavailable";
+            if (typeof value !== "string" || !value) return "Time unavailable";
             const date = new Date(value);
-            if (Number.isNaN(date.getTime())) return String(value);
+            if (Number.isNaN(date.getTime())) return "Time unavailable";
             return date.toLocaleString();
         }
 
@@ -867,34 +882,22 @@
         }
 
         function renderAlerts() {
-            const searchText = elements.search.value.trim().toLowerCase();
-            const filterValue = elements.filter.value;
-
-            const filteredAlerts = allAlerts.filter(alert => {
-                const status = String(alert.status || "ACTIVE").toUpperCase();
-                const label = String(alert.label || "").toLowerCase();
-                const id = String(alert.id ?? "").toLowerCase();
-                const severityText = `severity ${alert.severity}`;
-                const matchesSearch = !searchText || id.includes(searchText) || label.includes(searchText) || severityText.includes(searchText);
-                const matchesFilter = filterValue === "ALL"
-                    || (filterValue === "CRITICAL" && Number(alert.severity) === 5)
-                    || status === filterValue;
-                return matchesSearch && matchesFilter;
-            });
-
             elements.alerts.replaceChildren();
 
-            if (filteredAlerts.length === 0) {
+            if (allAlerts.length === 0) {
                 const empty = document.createElement("div");
                 empty.className = "empty-state";
-                empty.textContent = allAlerts.length === 0
-                    ? "No emergency alerts have been recorded yet."
-                    : "No alerts match the selected search or filter.";
+                const hasFilters = elements.search.value.trim()
+                    || elements.severityFilter.value !== "ALL"
+                    || elements.statusFilter.value !== "ALL";
+                empty.textContent = hasFilters
+                    ? "No alerts match the current search and filters."
+                    : "No emergency alerts have been recorded yet.";
                 elements.alerts.appendChild(empty);
                 return;
             }
 
-            filteredAlerts.forEach(alert => {
+            allAlerts.forEach(alert => {
                 const status = String(alert.status || "ACTIVE").toUpperCase();
                 const isResolved = status === "RESOLVED";
                 const card = document.createElement("article");
@@ -917,8 +920,7 @@
                 const severityClass = severity === 5 ? "critical" : severity >= 3 ? "high" : "";
                 meta.append(
                     makeTag(`Severity ${alert.severity}/5`, severityClass),
-                    makeTag(`Priority ${alert.priority}`, ""),
-                    makeTag(isResolved ? "Resolved" : "Awaiting resolution", isResolved ? "resolved" : "active")
+                    makeTag(`Priority ${alert.priority}`, "")
                 );
 
                 const time = document.createElement("p");
@@ -930,13 +932,16 @@
 
                 const coordinates = getValidCoordinates(alert);
                 if (coordinates) {
+                    const locationText = document.createElement("span");
+                    locationText.className = "section-caption";
+                    locationText.textContent = `Location: ${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)}`;
                     const locationLink = document.createElement("a");
                     locationLink.className = "map-link";
                     locationLink.href = `https://www.google.com/maps?q=${encodeURIComponent(coordinates.latitude)},${encodeURIComponent(coordinates.longitude)}`;
                     locationLink.target = "_blank";
                     locationLink.rel = "noopener noreferrer";
                     locationLink.textContent = "↗ View location on Google Maps";
-                    actions.appendChild(locationLink);
+                    actions.append(locationText, locationLink);
                 } else {
                     const noLocation = document.createElement("span");
                     noLocation.className = "section-caption";
@@ -959,7 +964,8 @@
         }
 
         async function resolveEmergency(alertId, button) {
-            if (!sessionReady) return;
+            if (!sessionReady || !isAuthorized) return;
+            if (!window.confirm(`Resolve alert #${alertId}? This will mark it as resolved.`)) return;
 
             button.disabled = true;
             button.textContent = "Resolving…";
@@ -972,10 +978,14 @@
                 await loadAlerts(true);
             } catch (error) {
                 if (error.code === "expired") {
+                    sessionReady = false;
+                    clearAuthorizedData();
                     window.location.replace("login.html?next=dashboard.html&expired=1");
                     return;
                 }
                 if (error.status === 403) {
+                    sessionReady = false;
+                    clearAuthorizedData();
                     updateAdminStatus("Administrator role required to resolve alerts.", "error");
                 }
                 button.disabled = false;
@@ -985,23 +995,52 @@
         }
 
         async function loadAlerts(manual = false) {
-            if (isLoading || !sessionReady) return;
-
-            isLoading = true;
+            if (!sessionReady) return false;
+            const requestId = ++latestRequestId;
             elements.refreshButton.disabled = true;
             if (manual) elements.refreshButton.textContent = "↻ Refreshing…";
 
             try {
-                const data = await auth.request("/emergencies", {
+                const params = new URLSearchParams();
+                if (elements.severityFilter.value !== "ALL") {
+                    params.set("severity", elements.severityFilter.value);
+                }
+                if (elements.statusFilter.value !== "ALL") {
+                    params.set("status", elements.statusFilter.value);
+                }
+                const search = elements.search.value.trim();
+                if (search) params.set("search", search);
+                const query = params.toString();
+                const data = await auth.request(`/emergencies${query ? `?${query}` : ""}`, {
                     method: "GET",
                     cache: "no-store"
                 });
-                if (!data || !Array.isArray(data.emergencies)) {
-                    throw new Error("Unexpected response from /emergencies. Expected an emergencies array.");
+                if (requestId !== latestRequestId) return false;
+                if (
+                    !data
+                    || !Array.isArray(data.emergencies)
+                    || !Number.isInteger(data.count)
+                    || data.count !== data.emergencies.length
+                    || data.emergencies.some(alert =>
+                        !alert
+                        || !Number.isInteger(alert.id)
+                        || alert.id < 1
+                        || !Number.isInteger(alert.severity)
+                        || alert.severity < 1
+                        || alert.severity > 5
+                        || !Number.isInteger(alert.priority)
+                        || !["ACTIVE", "RESOLVED"].includes(alert.status)
+                        || typeof alert.created_at !== "string"
+                    )
+                ) {
+                    throw new Error("The dashboard API returned an invalid alert list.");
                 }
 
                 allAlerts = data.emergencies;
-                elements.total.textContent = Number.isFinite(Number(data.count)) ? Number(data.count) : allAlerts.length;
+                isAuthorized = true;
+                elements.dashboardData.hidden = false;
+                if (!map) initialiseMap();
+                elements.total.textContent = data.count;
                 elements.critical.textContent = allAlerts.filter(alert => Number(alert.severity) === 5).length;
                 elements.active.textContent = allAlerts.filter(alert => String(alert.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
                 elements.resolved.textContent = allAlerts.filter(alert => String(alert.status || "").toUpperCase() === "RESOLVED").length;
@@ -1010,26 +1049,40 @@
                 renderAlerts();
                 setApiStatus("online", "API connected");
                 updateAdminStatus("Administrator access verified by the API.", "ok");
+                return true;
             } catch (error) {
+                if (requestId !== latestRequestId) return false;
                 if (error.code === "expired") {
+                    sessionReady = false;
+                    clearAuthorizedData();
                     window.location.replace("login.html?next=dashboard.html&expired=1");
-                    return;
+                    return false;
                 }
                 if (error.status === 403) {
-                    updateAdminStatus("Administrator role required. Alert locations are not available to this account.", "error");
+                    sessionReady = false;
+                    clearAuthorizedData();
+                    setApiStatus("offline", "Access denied");
+                    updateAdminStatus(
+                        "Administrator role required. No alert records or locations were provided to this account.",
+                        "error"
+                    );
+                    return false;
                 }
                 setApiStatus("offline", "API unavailable");
-                if (allAlerts.length === 0) {
+                if (!isAuthorized) {
                     elements.alerts.replaceChildren();
                     const message = document.createElement("div");
                     message.className = "error-state";
-                    message.textContent = `Could not load emergency reports: ${error.message}. Check that FastAPI is running at ${API_BASE}.`;
+                    message.textContent = `Could not load authorized emergency reports: ${error.message}`;
                     elements.alerts.appendChild(message);
                 }
+                updateAdminStatus(`Dashboard data could not be refreshed: ${error.message}`, "error");
+                return false;
             } finally {
-                isLoading = false;
-                elements.refreshButton.disabled = false;
-                elements.refreshButton.textContent = "↻ Refresh alerts";
+                if (requestId === latestRequestId) {
+                    elements.refreshButton.disabled = !isAuthorized;
+                    elements.refreshButton.textContent = "↻ Refresh alerts";
+                }
             }
         }
 
@@ -1046,18 +1099,10 @@
                 return false;
             }
             try {
-                const user = await auth.getCurrentUser();
-                if (user.role !== "ADMIN") {
-                    window.location.replace("index.html");
-                    return false;
-                }
+                await auth.getCurrentUser();
                 sessionReady = true;
-                elements.refreshButton.disabled = false;
-                updateAdminStatus(
-                    "Administrator profile verified. The API authorizes each operation.",
-                    "ok"
-                );
-                return true;
+                updateAdminStatus("Session valid. Waiting for backend administrator authorization.");
+                return await loadAlerts();
             } catch (error) {
                 if (error.code === "expired" || error.code === "unauthenticated") {
                     window.location.replace(
@@ -1098,10 +1143,36 @@
             elements.adminStatus.className = `admin-status ${kind}`.trim();
         }
 
+        function clearAuthorizedData() {
+            allAlerts = [];
+            isAuthorized = false;
+            elements.dashboardData.hidden = true;
+            elements.total.textContent = "—";
+            elements.critical.textContent = "—";
+            elements.active.textContent = "—";
+            elements.resolved.textContent = "—";
+            elements.refreshButton.disabled = true;
+            if (markerLayer) markerLayer.clearLayers();
+            elements.mapSummary.textContent = "Locations available to authorized administrators only";
+            elements.alerts.replaceChildren();
+            hasFittedMap = false;
+            if (map) map.setView([20.5937, 78.9629], 5);
+            if (refreshInterval !== null) {
+                window.clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+
+        function scheduleFilteredLoad() {
+            window.clearTimeout(searchTimer);
+            searchTimer = window.setTimeout(() => loadAlerts(), SEARCH_DEBOUNCE_MS);
+        }
+
         elements.refreshButton.addEventListener("click", () => loadAlerts(true));
         elements.fitMapButton.addEventListener("click", fitAllMarkers);
-        elements.search.addEventListener("input", renderAlerts);
-        elements.filter.addEventListener("change", renderAlerts);
+        elements.search.addEventListener("input", scheduleFilteredLoad);
+        elements.severityFilter.addEventListener("change", scheduleFilteredLoad);
+        elements.statusFilter.addEventListener("change", scheduleFilteredLoad);
         elements.logoutButton.addEventListener("click", signOut);
 
         // Highlight the navigation item for the section currently in view.
@@ -1112,13 +1183,11 @@
             });
         });
 
-        initialiseMap();
         updateClock();
         setInterval(updateClock, 1000);
         verifyAdminSession().then(verified => {
             if (!verified) return;
-            loadAlerts();
-            setInterval(() => loadAlerts(false), REFRESH_INTERVAL_MS);
+            refreshInterval = setInterval(() => loadAlerts(false), REFRESH_INTERVAL_MS);
         });
 
     </script>

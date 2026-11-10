@@ -153,6 +153,69 @@ class AuthorizationTests(unittest.TestCase):
         self.assertEqual(response.json(), {"count": 0, "emergencies": []})
         resqlink_app.get_alerts.assert_called_once_with()
 
+    def test_admin_alert_filters_combine_severity_status_and_search(self):
+        resqlink_app.get_alerts.return_value = [
+            {
+                "id": 31,
+                "severity": 5,
+                "label": "CRITICAL",
+                "priority": 100,
+                "status": "ACTIVE",
+                "created_at": "2026-11-10T10:00:00+00:00",
+            },
+            {
+                "id": 32,
+                "severity": 5,
+                "label": "CRITICAL",
+                "priority": 100,
+                "status": "RESOLVED",
+                "created_at": "2026-11-10T11:00:00+00:00",
+            },
+            {
+                "id": 33,
+                "severity": 3,
+                "label": "HIGH",
+                "priority": 60,
+                "status": "ACTIVE",
+                "created_at": "2026-11-10T12:00:00+00:00",
+            },
+        ]
+
+        response = self.client.get(
+            "/emergencies",
+            params={
+                "severity": 5,
+                "status": "ACTIVE",
+                "search": "critical",
+            },
+            headers=self.auth("admin-token")
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(
+            [alert["id"] for alert in response.json()["emergencies"]],
+            [31]
+        )
+
+    def test_user_cannot_use_dashboard_filters_to_read_alerts(self):
+        response = self.client.get(
+            "/emergencies?severity=5&status=ACTIVE&search=critical",
+            headers=self.auth("user-token")
+        )
+
+        self.assertEqual(response.status_code, 403)
+        resqlink_app.get_alerts.assert_not_called()
+
+    def test_dashboard_filter_values_are_validated(self):
+        response = self.client.get(
+            "/emergencies?severity=6",
+            headers=self.auth("admin-token")
+        )
+
+        self.assertEqual(response.status_code, 422)
+        resqlink_app.get_alerts.assert_not_called()
+
     def test_user_can_only_request_their_own_alerts(self):
         own_alert = {
             "id": 27,

@@ -1,9 +1,10 @@
 import os
 import re
 from pathlib import Path
+from typing import Literal
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from httpx import HTTPError
@@ -243,12 +244,26 @@ def create_emergency(
 
 
 @app.get("/emergencies", dependencies=[Depends(require_admin)])
-def list_emergencies():
+def list_emergencies(
+    severity: int | None = Query(default=None, ge=1, le=5),
+    status: Literal["ACTIVE", "RESOLVED"] | None = None,
+    search: str | None = Query(default=None, max_length=100),
+):
     alerts = get_alerts()
-    return {
-        "count": len(alerts),
-        "emergencies": alerts
-    }
+    if severity is not None:
+        alerts = [alert for alert in alerts if alert["severity"] == severity]
+    if status is not None:
+        alerts = [alert for alert in alerts if alert["status"] == status]
+    if search and search.strip():
+        term = search.strip().casefold()
+        alerts = [
+            alert for alert in alerts
+            if term in " ".join(
+                str(alert[field])
+                for field in ("id", "label", "severity", "priority", "status", "created_at")
+            ).casefold()
+        ]
+    return {"count": len(alerts), "emergencies": alerts}
 
 
 @app.get("/emergencies/me")

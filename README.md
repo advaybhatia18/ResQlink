@@ -223,7 +223,7 @@ emergency services. Use local emergency channels for real emergencies.
 | `GET` | `/` | API status |
 | `POST` | `/emergency` | Create an emergency alert (valid Supabase user required) |
 | `GET` | `/emergencies/me` | List the signed-in user's own emergency records |
-| `GET` | `/emergencies` | List all emergency alerts (ADMIN required) |
+| `GET` | `/emergencies` | List/filter alerts (`severity`, `status`, `search`; ADMIN required) |
 | `PATCH` | `/emergency/{alert_id}/resolve` | Resolve an alert (ADMIN required) |
 | `POST` | `/register` | Create a user account |
 | `POST` | `/login` | Sign in |
@@ -238,7 +238,9 @@ emergency services. Use local emergency channels for real emergencies.
   setup before using the API.
 - Ordinary users can retrieve their own records at `/emergencies/me`; only
   their own precise GPS coordinates are returned. The responder endpoint
-  `/emergencies` requires the `ADMIN` profile role.
+  `/emergencies` requires the `ADMIN` profile role. Its optional `severity`
+  (1-5), `status` (`ACTIVE` or `RESOLVED`), and `search` query parameters are
+  applied only after backend administrator authorization.
 - Supabase `authenticated` users receive read-only table grants protected by
   owner/admin RLS policies. All writes go through the FastAPI backend; users
   cannot update `user_id`, and the service-role key remains backend-only.
