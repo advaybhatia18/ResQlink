@@ -32,9 +32,10 @@ Copy-Item .env.example .env
 ```
 
 Create a Supabase project, then open **Project Settings > API** and copy the
-project URL, publishable/anon key, and service-role key into `.env`. The
-service-role key bypasses Row Level Security, so keep it private and never
-place it in frontend files or commit `.env`.
+project URL and publishable key (`sb_publishable_...`) into `SUPABASE_URL` and
+`SUPABASE_KEY`. Also set `SUPABASE_SERVICE_ROLE_KEY` to the project's private
+secret/service-role key. The private key bypasses Row Level Security, so keep
+it on the backend only; never place it in frontend files or commit `.env`.
 
 In the Supabase SQL Editor, run [`supabase/schema.sql`](./supabase/schema.sql)
 to create the profiles and emergencies tables and the profile-on-signup

@@ -27,11 +27,11 @@ def _supabase_service_role_key() -> str:
 
 
 def _supabase_anon_key() -> str:
-    value = os.getenv("SUPABASE_ANON_KEY")
+    value = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_ANON_KEY")
     if not value:
         raise HTTPException(
             status_code=503,
-            detail="Supabase is not configured: set SUPABASE_ANON_KEY"
+            detail="Supabase is not configured: set SUPABASE_KEY"
         )
     return value
 

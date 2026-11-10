@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from gotrue.errors import AuthApiError
 from pydantic import BaseModel, Field
+from supabase_auth.errors import AuthApiError
 
 from emergency_engine import process_emergency
 from storage import (
