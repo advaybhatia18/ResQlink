@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: >-
-      pip install -r requirements.txt
+      pip install -r backend/requirements.txt
       && gcc -shared -fPIC -o core/libemergency.so core/emergency.c
       && cd backend
       && python -c 'from emergency_engine import process_emergency; assert process_emergency(5) == {"severity": 5, "label": "CRITICAL", "priority": 100}'
