@@ -1,54 +1,62 @@
 # ResQlink
 
-ResQlink is an emergency alert and location-sharing app. Its FastAPI backend
-uses Supabase Auth for accounts and Supabase Postgres for emergency alerts and
-user profiles. The native C engine in `core` calculates alert labels and
-priorities. The frontend is made of static HTML pages.
+ResQlink is an emergency-assistance platform, triage classification aid, personal safety contact hub, and isolated responder simulator. Its FastAPI backend uses Supabase Auth for authentication and Supabase Postgres (with Row Level Security) for storage, while the native C engine in `core/` calculates deterministic emergency priorities and severity labels. The frontend consists of 12 mobile-first static HTML/CSS/JS pages deployed to GitHub Pages.
 
-## Features
+> **Important Safety Notice:** Submitting or storing an alert in ResQlink does **not** automatically notify or dispatch public police, fire, or medical services unless an authorized external integration is explicitly configured. For real emergencies, contact your local emergency number (e.g., 112 / 911 / 999) directly. Priority and service recommendations are operational routing aids only, not medically validated triage.
 
-- Submit an emergency alert with severity and browser-provided GPS coordinates,
-  or deliberately submit without location when GPS is unavailable.
-- View alerts on the command-centre dashboard and resolve them with an
-  administrator account.
-- Register and sign in to a user account.
-- Recover and reset a password through Supabase Auth.
-- Verify sessions on protected pages and revoke sessions when signing out.
-- Store alerts and user profiles in Supabase Postgres.
-- Authenticate accounts and API access tokens with Supabase Auth.
+## Pages & Portals
 
-## Project layout
+1. [`index.html`](./index.html) — Landing page, safety disclaimer, platform overview, and dynamic member/admin entry links
+2. [`register.html`](./register.html) — New member account registration
+3. [`login.html`](./login.html) — Member sign-in portal
+4. [`password-reset.html`](./password-reset.html) — Dual-mode password recovery email request and token-based reset
+5. [`user-dashboard.html`](./user-dashboard.html) — Authenticated member hub (profile summary, emergency contacts snapshot, quick SOS, recent alerts)
+6. [`sos.html`](./sos.html) — Primary SOS console (category + severity 1–5 selection, live service recommendations, GPS capture with >100m accuracy guard, Leaflet location preview, idempotency retry, and emergency contacts check-in fallback)
+7. [`history.html`](./history.html) — Personal emergency history with status/category filtering and timeline detail modal
+8. [`contacts.html`](./contacts.html) — Trusted emergency contacts CRUD (up to 10 contacts, primary toggle, `tel:` & copy fallback, consent-logged notification audit trail)
+9. [`settings.html`](./settings.html) — Profile editor, password update, session revocation, and account deletion request
+10. [`admin-login.html`](./admin-login.html) — Administrator portal sign-in with backend role verification
+11. [`dashboard.html`](./dashboard.html) — Admin Command Center (overview analytics, multi-filter queue, Leaflet marker map, emergency status workflow `ACTIVE -> ACKNOWLEDGED -> DISPATCHED -> RESOLVED`, admin notes, and audit logs)
+12. [`simulator.html`](./simulator.html) — Strictly isolated Admin Simulator (14 prebuilt scenarios + custom scenario runner + simulated lifecycle transitions stored separately in `simulator_runs`)
+
+## Repository Layout
 
 ```text
 .
-├── index.html, login.html, register.html, password-reset.html, dashboard.html
-├── api-config.js            # Local development API URL; not published by CI
-├── emergency.css            # Mobile-first emergency page styles
-├── emergency-api.js         # Authenticated API/session integration
-├── emergency-submit.js      # GPS, submission states, and safe retries
-├── auth.css                 # Shared sign-in, registration, and recovery styles
-├── auth-session.js          # Tab-scoped token handling and API session checks
-├── auth-pages.js            # Login, registration, and recovery form behavior
-├── backend/                 # FastAPI API and Supabase access
-├── core/                    # C engine source and local Windows DLL
-├── backend/test_*.py        # pytest-discovered engine, API, and storage tests
-├── frontend-tests/          # Node.js tests for browser API/session handling
-├── conftest.py              # Builds the C engine into a temporary test directory
-├── supabase/schema.sql      # Supabase tables and signup trigger
-├── pytest.ini               # pytest discovery settings
-├── requirements-dev.txt     # Backend and pytest dependencies
-├── .github/workflows/       # Tests and gated GitHub Pages deployment
-├── render.yaml              # Render API deployment
-├── requirements.txt
-└── .env.example
+├── *.html                     # 12 static frontend pages
+├── theme.css, auth.css        # Accessible responsive stylesheets
+├── emergency.css              # Legacy SOS utility stylesheet (retained)
+├── api-config.js              # API base URL configuration (overwritten in CI for Pages)
+├── auth-session.js            # Tab-scoped session storage and authenticated API client
+├── auth-pages.js              # Auth forms & redirect allowlist
+├── ui-shell.js                # Shared navigation shell & XSS-safe DOM helpers
+├── emergency-api.js           # SOS submission API client
+├── emergency-submit.js        # GPS validation, service selection, idempotent retries
+├── backend/
+│   ├── app.py                 # FastAPI routes, RBAC, middleware wiring
+│   ├── auth.py                # Supabase Auth token validation & role lookups
+│   ├── classification.py      # 7 categories, 5 severities, 3 services recommendation rules
+│   ├── contacts.py            # Emergency contacts CRUD & honest notification audit logging
+│   ├── emergency_engine.py    # ctypes wrapper around core C engine with pure-Python fallback
+│   ├── location.py            # Coordinate & accuracy validation
+│   ├── request_controls.py    # Rate limiting & request size caps
+│   ├── simulator.py           # Isolated simulator engine (writes only to simulator_runs)
+│   ├── storage.py             # Supabase Postgres persistence, status history, audit logs
+│   ├── requirements.txt       # Backend runtime dependencies
+│   └── test_*.py              # Automated backend unit, integration & integrity tests
+├── core/
+│   └── emergency.c            # Native C priority & severity engine
+├── frontend-tests/            # Node.js built-in test runner suites (`*.test.cjs`)
+├── supabase/
+│   ├── schema.sql             # Consolidated database schema, RLS policies & triggers
+│   └── migrations/            # Additive versioned SQL migrations
+├── render.yaml                # Render FastAPI service blueprint
+├── .github/workflows/pages.yml# CI test gate + GitHub Pages artifact build
+├── TODO.md                    # Remaining manual setup steps for the project owner
+└── [ARCHITECTURE|API_DOCUMENTATION|SUPABASE_SETUP|TESTING|DEPLOYMENT].md
 ```
 
-GitHub Pages hosts only the static HTML and JavaScript. The FastAPI backend
-must run separately; this repository includes a Render deployment blueprint.
-
-## Setup on Windows
-
-Run these commands from the project root in PowerShell:
+## Quick Local Setup (Windows PowerShell)
 
 ```powershell
 py -m venv .venv
@@ -57,292 +65,20 @@ python -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
 ```
 
-## Run tests locally
-
-The test suite uses `pytest` for Python tests and Node.js's built-in test
-runner for the browser session client. It does not need a Supabase project,
-production credentials, real accounts, or GPS data; Supabase and HTTP
-operations are mocked. The pytest setup compiles `core\emergency.c` to a
-temporary native library, smoke-tests it, and removes it after the run. On
-Windows, the compiled library is smoke-tested in a child process (to allow
-temporary-file cleanup); integration tests load the process-compatible
-`core\emergency64.dll`. CI runs the C source build and tests on Ubuntu.
-
-Install a C compiler and Node.js before running tests:
-
-- Windows: install MinGW-w64 and ensure `gcc` is on `PATH`; install Node.js 20
-  or newer. The existing DLL must match your Python process architecture.
-- Ubuntu/Debian: `sudo apt-get install build-essential`; install Node.js 20 or
-  newer.
-- macOS: install the Xcode Command Line Tools with `xcode-select --install`;
-  install Node.js 20 or newer.
-
-From the repository root in PowerShell, create the environment and install
-test dependencies:
+Fill in `.env` with your Supabase project credentials (`SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`), allowed CORS origins (`FRONTEND_ORIGINS`), and `PASSWORD_RESET_REDIRECT_URL`. Then run the backend locally:
 
 ```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-dev.txt
+uvicorn app:app --app-dir backend --reload --host 127.0.0.1 --port 8000
 ```
 
-Run the backend, C-engine, and storage suite, then the frontend API/session
-tests:
+## Running Automated Tests
 
 ```powershell
+# Backend, C engine, schema, and static asset integrity tests
 python -m pytest
-node --test frontend-tests\auth-session.test.cjs
+
+# Frontend JS tests (requires Node.js 20+)
+node --test frontend-tests\auth-session.test.cjs frontend-tests\platform-ui.test.cjs
 ```
 
-Pytest also discovers the existing `unittest` API and ownership tests. The
-GitHub Actions workflow runs both commands on pull requests and before
-publishing GitHub Pages from `main`; a failed test job prevents deployment.
-
-Create a Supabase project, then open **Project Settings > API** and copy the
-project URL and publishable key (`sb_publishable_...`) into `SUPABASE_URL` and
-`SUPABASE_KEY`. Also set `SUPABASE_SERVICE_ROLE_KEY` to the project's private
-secret/service-role key. The private key bypasses Row Level Security, so keep
-it on the backend only; never place it in frontend files or commit `.env`.
-
-In the Supabase SQL Editor, run [`supabase/schema.sql`](./supabase/schema.sql)
-to create the profiles and emergencies tables and the profile-on-signup
-trigger. This also enables Row Level Security and grants table access only to
-the backend and authenticated users according to ownership policies. For an
-existing project, apply
-[`supabase/migrations/20261110_emergency_user_ownership.sql`](./supabase/migrations/20261110_emergency_user_ownership.sql)
-if ownership has not already been set up, then apply
-[`supabase/migrations/20261110163248_emergency_submission_safety.sql`](./supabase/migrations/20261110163248_emergency_submission_safety.sql).
-The ownership migration only copies a previously recorded `created_by` profile
-when that profile still exists; other historical rows stay unowned and are
-never assigned speculatively. The submission migration allows intentional
-no-location alerts and adds retry-key/accuracy fields without deleting or
-changing existing records.
-
-Review unowned historical alerts with:
-
-```sql
-select id, created_at, severity, label
-from public.emergencies
-where user_id is null
-order by created_at;
-```
-
-These rows remain available to administrators only. Resolve ownership only
-when verified from trusted records; otherwise retain or delete them according
-to your organization's retention policy. No automatic time-based location
-retention is configured. Deleting a profile cascades deletion of its owned
-emergency records, including their precise coordinates.
-
-The backend loads `.env` automatically from the project root. Supabase Auth
-email confirmation can be configured under
-**Authentication > Providers > Email** in the Supabase dashboard; when enabled,
-users must confirm their email before signing in.
-
-Set `PASSWORD_RESET_REDIRECT_URL` in `.env` to the absolute URL of
-`password-reset.html` served locally (the example in `.env.example` uses Live
-Server). Add both the local URL and deployed Pages URL to **Authentication >
-URL Configuration > Redirect URLs**. Configure Supabase Auth email delivery
-for recovery emails; without a valid redirect allowlist and email provider,
-password recovery cannot complete.
-
-To grant responder access, first register the account normally, then promote
-its profile using the Supabase SQL Editor and that account's Auth user UUID:
-
-```sql
-update public.profiles
-set role = 'ADMIN'
-where id = 'AUTH_USER_UUID';
-```
-
-Only the database profile role grants administrator access. Never accept role
-changes from registration or browser-supplied request data.
-
-## Run the app
-
-Start the API from the `backend` directory:
-
-```powershell
-Set-Location .\backend
-python -m uvicorn app:app --reload
-```
-
-The API is available at <http://127.0.0.1:8000> and its interactive API
-documentation is at <http://127.0.0.1:8000/docs>.
-
-In a second terminal, serve the repository root with VS Code Live Server and
-open `index.html`. The other pages are `login.html`, `register.html`, and
-`dashboard.html`. GPS access requires browser permission.
-
-## Deploy
-
-### Production configuration
-
-The GitHub Pages deployment generates `api-config.js` from the repository
-Actions variable `RESQLINK_API_URL`. Configure it under **Settings > Secrets
-and variables > Actions > Variables** with the actual public HTTPS Render API
-base URL. The workflow rejects an unset or loopback/private URL and does not
-copy the local-development `api-config.js` into the published site.
-
-On Render, configure `SUPABASE_URL`, `SUPABASE_KEY`,
-`SUPABASE_SERVICE_ROLE_KEY`, and `PASSWORD_RESET_REDIRECT_URL` as private
-environment variables. Set `FRONTEND_ORIGINS` to only the deployed Pages
-origin (or the explicitly selected custom-domain origin); do not include
-localhost in production. Local development origins belong only in the
-untracked `.env`. Never put a Supabase service-role key in GitHub variables,
-static assets, or browser code.
-
-The Render `/healthz` check is a process liveness check and does not validate
-Supabase connectivity. The API limits request bodies to 1 MiB and applies
-in-process request rates per ASGI peer address. These limits are single
-process, reset on restart, and may see a shared proxy address depending on
-hosting configuration; configure a trusted proxy-aware limiter and upstream
-WAF/DoS protection before a public production launch.
-
-### Backups, retention, and recovery
-
-No automatic location-retention or application backup schedule is configured
-by this repository. Before storing operational data, choose a retention period
-and deletion process for precise coordinates, verify the Supabase plan's
-backup and point-in-time recovery coverage, and document who can access and
-restore backups. Restrict, encrypt, and periodically test restoration of
-backups in a separate environment. Account deletion cascades to owned alerts,
-so confirm the implications for incident records and legal retention before
-deleting profiles. Define incident response, credential rotation, and
-recovery ownership outside this demo application.
-
-### GitHub Pages frontend
-
-1. Push the repository to GitHub's `main` branch.
-2. In the repository, open **Settings > Pages** and set the source to
-   **GitHub Actions**.
-3. Configure the repository Actions variable `RESQLINK_API_URL` as described
-   above with the deployed Render API's HTTPS base URL.
-4. The workflow at `.github/workflows/pages.yml` validates this URL and
-   generates the production API configuration before deploying the static
-   pages. The site URL is shown under **Settings > Pages**.
-
-### FastAPI backend on Render
-
-1. Create a new Render Blueprint and select this repository. Render reads
-   `render.yaml`; the blueprint compiles the C emergency engine for Linux.
-2. Set `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and
-   `PASSWORD_RESET_REDIRECT_URL` in the Render dashboard when prompted. Set
-   the last value to the absolute URL
-   `https://advaybhatia18.github.io/ResQlink/password-reset.html` (adjust for a
-   custom Pages domain). Keep the service-role key private, and
-   remove any old `RESQLINK_ADMIN_TOKEN` setting; it is no longer used.
-3. Set `FRONTEND_ORIGINS` to the exact origin of your Pages site, for example
-   `https://advaybhatia18.github.io`. Origins have no path or trailing slash.
-   The production blueprint value contains only the default Pages origin.
-4. Set the same Render HTTPS service URL as the GitHub Actions variable
-   `RESQLINK_API_URL`; do not commit a production URL to frontend source.
-
-The configured Supabase project must have the tables and signup trigger from
-[`supabase/schema.sql`](./supabase/schema.sql). For a custom Pages domain,
-update `FRONTEND_ORIGINS` in Render to match its `https://` origin.
-The Render API deployment requires the configured Supabase URL, publishable
-key, backend-only service-role key, password-reset redirect URL, and a working
-GCC compiler to build the native C engine. These deployment credentials are
-not needed by the test suite and must not be added as test fixtures or CI
-secrets.
-
-For local development, set `PASSWORD_RESET_REDIRECT_URL` in `.env` to the
-absolute Live Server URL, for example
-`http://127.0.0.1:5500/password-reset.html`. Add that exact URL, along with the
-deployed reset-page URL, to **Supabase Dashboard > Authentication > URL
-Configuration > Redirect URLs**. Password recovery requires Supabase Auth
-email delivery to be configured; the API does not reveal whether an email
-address is registered.
-
-GitHub Pages cannot serve Python, run the C engine, or hold backend secrets.
-Never put Supabase service-role keys in `api-config.js` or any other frontend
-file. API authorization uses Supabase access tokens and database profile roles.
-
-User registration and sign-in use Supabase Auth; the API validates Supabase
-access tokens and reads profile roles from Postgres.
-
-Only the access token is kept in tab-scoped `sessionStorage`; passwords and
-profile/role data are not cached there. Protected pages verify the token using
-`GET /me`, and the backend independently authorizes every protected operation.
-Sign out attempts to revoke the current Supabase session and always clears the
-local tab session. If the network is unavailable, the UI explains that
-server-side revocation could not be confirmed.
-
-## Emergency submission flow
-
-1. A signed-in user presses **SOS** and selects a severity from 1 to 5. The
-   browser requests a fresh location, with a 15-second GPS timeout.
-2. The browser checks that latitude, longitude, and reported accuracy are
-   finite numbers in range. If the reported accuracy is worse than 100 metres,
-   the user can retry GPS, explicitly accept the approximate location, or
-   choose the no-location option. The API also requires a confirmation flag
-   for locations reported as worse than 100 metres.
-3. If GPS is denied, unavailable, unsupported, or times out, the page does not
-   invent coordinates or send an alert automatically. The user can retry or
-   deliberately submit with both coordinates and accuracy set to `null`.
-4. Before sending, the browser saves the exact payload and a random
-   idempotency key in tab-scoped session storage. It sends an authenticated
-   `POST /emergency` request with a 12-second timeout. If the result is
-   uncertain, pressing **Retry same alert** resends the same payload and key.
-   The backend enforces uniqueness per authenticated user, so a retry returns
-   the original alert instead of inserting a duplicate. A key reused with
-   different alert data is rejected.
-5. The API validates the token, severity, paired coordinates, coordinate
-   ranges, and reported accuracy. It calculates the label and priority with
-   the existing C emergency engine, then stores the alert with the verified
-   profile ID, coordinates (if supplied), reported accuracy, and idempotency
-   key in Supabase. The service-role key remains backend-only.
-6. A new record returns HTTP `201`; a recognized retry returns HTTP `200`.
-   Both responses include the alert ID, record status, and submission status.
-   An expired session retains the pending request for retry after sign-in.
-   Database or network errors are shown as unconfirmed, not successful.
-
-The saved pending payload may contain precise coordinates and remains in
-session storage only until the server confirms the alert or the tab is closed.
-ResQlink is a demo/prototype; submitting or storing an alert does **not** contact
-emergency services. Use local emergency channels for real emergencies.
-
-## API endpoints
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/` | API status |
-| `POST` | `/emergency` | Create an emergency alert (valid Supabase user required) |
-| `GET` | `/emergencies/me` | List the signed-in user's own emergency records |
-| `GET` | `/emergencies` | List/filter alerts (`severity`, `status`, `search`; ADMIN required) |
-| `PATCH` | `/emergency/{alert_id}/resolve` | Resolve an alert (ADMIN required) |
-| `POST` | `/register` | Create a user account |
-| `POST` | `/login` | Sign in |
-| `GET` | `/me` | Get the signed-in user's account |
-| `POST` | `/password-recovery` | Request a Supabase password recovery email |
-| `POST` | `/password-update` | Update the signed-in user's password using a valid Supabase access token |
-| `POST` | `/logout` | Revoke the current Supabase session |
-
-## Notes
-
-- Tables and the profile trigger must be created by running the Supabase SQL
-  setup before using the API.
-- Ordinary users can retrieve their own records at `/emergencies/me`; only
-  their own precise GPS coordinates are returned. The responder endpoint
-  `/emergencies` requires the `ADMIN` profile role. Its optional `severity`
-  (1-5), `status` (`ACTIVE` or `RESOLVED`), and `search` query parameters are
-  applied only after backend administrator authorization.
-- Supabase `authenticated` users receive read-only table grants protected by
-  owner/admin RLS policies. All writes go through the FastAPI backend; users
-  cannot update `user_id`, and the service-role key remains backend-only.
-- Keep `.env` and its secrets out of source control. Use distinct secrets for
-  every deployment and do not use development settings for a public service.
-- `api-config.js` is for local development. The Pages workflow generates its
-  production copy from the required Actions variable `RESQLINK_API_URL`.
-- Reset links are sent to the configured `PASSWORD_RESET_REDIRECT_URL`, which
-  must be allowlisted in Supabase Auth settings. The recovery access token is
-  read from the URL fragment, removed from browser history, used only in
-  memory, and never written to session storage.
-- Remove the obsolete `RESQLINK_ADMIN_TOKEN` variable from local or hosting
-  environment settings. Administrator permissions now come from
-  `public.profiles.role`.
-- Run authorization tests with
-- Run the complete automated suite with `python -m pytest` and
-  `node --test frontend-tests\auth-session.test.cjs`.
-- Existing accounts and alerts in `database/resqlink.db` are not migrated
-  automatically; export/import them separately if they need to be retained.
+See [TESTING.md](./TESTING.md) for details on what each suite covers, [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) for applying SQL migrations and RLS policies, [DEPLOYMENT.md](./DEPLOYMENT.md) for Render + GitHub Pages deployment, [ARCHITECTURE.md](./ARCHITECTURE.md) for system design, [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) for all endpoints, and [TODO.md](./TODO.md) for remaining manual owner actions.

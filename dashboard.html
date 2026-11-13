@@ -588,6 +588,41 @@
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
         }
+
+        .breakdown-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 15px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 960px) { .breakdown-grid { grid-template-columns: 1fr; } }
+        .breakdown-card { padding: 16px 18px; }
+        .breakdown-card h3 { margin: 0 0 10px; font-size: 13px; color: var(--cyan); text-transform: uppercase; letter-spacing: 0.08em; }
+        .breakdown-list { display: grid; gap: 6px; font-size: 12.5px; }
+        .breakdown-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid rgba(145,190,225,0.08); }
+        .tag.acknowledged { color: var(--amber); border-color: rgba(255,191,105,0.35); background: rgba(255,191,105,0.12); }
+        .tag.dispatched { color: var(--cyan); border-color: rgba(54,230,239,0.35); background: rgba(54,230,239,0.12); }
+        .modal-backdrop {
+            position: fixed; inset: 0; z-index: 1200;
+            display: grid; place-items: center; padding: 16px;
+            background: rgba(4, 9, 18, 0.8); backdrop-filter: blur(8px);
+        }
+        .modal-panel {
+            width: min(760px, 100%); max-height: 90vh; overflow-y: auto;
+            padding: 22px; border-radius: 18px;
+            border: 1px solid rgba(145, 190, 225, 0.28);
+            background: #0d192b; box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+        }
+        .modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+        .notes-area {
+            width: 100%; min-height: 76px; padding: 10px; border-radius: 10px;
+            border: 1px solid var(--line); background: rgba(7, 13, 23, 0.85); color: var(--text);
+            margin: 8px 0 12px; resize: vertical;
+        }
+        .audit-table-wrap { overflow-x: auto; }
+        .audit-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .audit-table th, .audit-table td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+        .audit-table th { color: var(--muted); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.08em; }
     </style>
 </head>
 <body>
@@ -605,8 +640,16 @@
             <nav class="nav-list" aria-label="Dashboard navigation">
                 <a class="nav-link active" href="#overview"><span class="nav-icon">▦</span>Overview</a>
                 <a class="nav-link" href="#map-section"><span class="nav-icon">◎</span>Emergency alert map</a>
-                <a class="nav-link" href="#alerts-section"><span class="nav-icon">⚑</span>Alert reports</a>
+                <a class="nav-link" href="#alerts-section"><span class="nav-icon">⚑</span>Live emergency monitor</a>
+                <a class="nav-link" href="#audit-section"><span class="nav-icon">☰</span>Admin audit log</a>
                 <a class="nav-link" href="#admin-section"><span class="nav-icon">⌑</span>Administrator status</a>
+            </nav>
+            <p class="nav-label" style="margin-top: 18px;">Portals</p>
+            <nav class="nav-list" aria-label="Platform links">
+                <a class="nav-link" href="simulator.html"><span class="nav-icon">⚙</span>Emergency simulator</a>
+                <a class="nav-link" href="sos.html"><span class="nav-icon">!</span>SOS console</a>
+                <a class="nav-link" href="user-dashboard.html"><span class="nav-icon">⌂</span>Member dashboard</a>
+                <a class="nav-link" href="index.html"><span class="nav-icon">←</span>Home</a>
             </nav>
 
             <div class="sidebar-spacer"></div>
@@ -651,14 +694,29 @@
                         <div class="stat-foot">Matching severity level 5</div>
                     </article>
                     <article class="glass-panel stat-card" style="--accent: var(--amber); --glow: rgba(255,191,105,.14)">
-                        <div class="stat-top"><span class="stat-label">Active alerts</span><span class="stat-icon">◉</span></div>
+                        <div class="stat-top"><span class="stat-label">Open emergencies</span><span class="stat-icon">◉</span></div>
                         <div class="stat-value" id="active">—</div>
-                        <div class="stat-foot">Matching active reports</div>
+                        <div class="stat-foot">Active / Acknowledged / Dispatched</div>
                     </article>
                     <article class="glass-panel stat-card" style="--accent: var(--green); --glow: rgba(56,223,172,.14)">
                         <div class="stat-top"><span class="stat-label">Resolved alerts</span><span class="stat-icon">✓</span></div>
                         <div class="stat-value" id="resolved">—</div>
                         <div class="stat-foot">Matching resolved reports</div>
+                    </article>
+                </div>
+
+                <div class="breakdown-grid">
+                    <article class="glass-panel breakdown-card">
+                        <h3>Alerts by severity</h3>
+                        <div class="breakdown-list" id="severityBreakdown"></div>
+                    </article>
+                    <article class="glass-panel breakdown-card">
+                        <h3>Alerts by category</h3>
+                        <div class="breakdown-list" id="categoryBreakdown"></div>
+                    </article>
+                    <article class="glass-panel breakdown-card">
+                        <h3>Requested services</h3>
+                        <div class="breakdown-list" id="serviceBreakdown"></div>
                     </article>
                 </div>
             </section>
@@ -667,17 +725,21 @@
                 <div class="section-heading">
                     <div>
                         <h2>Emergency alert map</h2>
-                        <p>GPS locations attached to saved emergency reports.</p>
+                        <p>Severity-styled GPS markers with clustering and accuracy metadata. Polling refresh updates changed markers without resetting your map view.</p>
                     </div>
                     <div class="map-legend">
-                        <span class="legend-item"><span class="legend-dot"></span>Active location</span>
-                        <span class="legend-item"><span class="legend-dot resolved"></span>Resolved location</span>
+                        <span class="legend-item"><span class="legend-dot" style="background:#ff4d6d;"></span>Critical (5)</span>
+                        <span class="legend-item"><span class="legend-dot" style="background:#ffbf69;"></span>High (3-4)</span>
+                        <span class="legend-item"><span class="legend-dot" style="background:#38dfac;"></span>Low / Resolved</span>
                     </div>
                 </div>
                 <div class="glass-panel map-panel">
                     <div class="map-toolbar">
                         <span class="section-caption" id="mapSummary">Waiting for location data…</span>
-                        <button class="button secondary" id="fitMapButton" type="button">⌖ Fit all markers</button>
+                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <span class="section-caption" id="pollingStatusLabel">Polling every 15s (pauses when tab hidden)</span>
+                            <button class="button secondary" id="fitMapButton" type="button">⌖ Fit all markers</button>
+                        </div>
                     </div>
                     <div id="emergencyMap" role="application" aria-label="Map showing emergency GPS locations"></div>
                     <div class="map-error" id="mapError">The map library could not be loaded. Check your internet connection and reload this page. Alert reports will still load.</div>
@@ -687,11 +749,11 @@
             <section id="alerts-section">
                 <div class="section-heading">
                     <div>
-                        <h2>Emergency alert reports</h2>
-                        <p>Search, filter and review reports received by the API.</p>
+                        <h2>Live emergency monitor</h2>
+                        <p>Search, filter, inspect details, update operational status, and review status history.</p>
                     </div>
                     <div class="alert-tools">
-                        <input class="field search-field" id="alertSearch" type="search" maxlength="100" placeholder="Search ID, severity, status, or time…" aria-label="Search alerts">
+                        <input class="field search-field" id="alertSearch" type="search" maxlength="100" placeholder="Search ID, category, severity, status, reporter…" aria-label="Search alerts">
                         <select class="field" id="severityFilter" aria-label="Filter by severity">
                             <option value="ALL">All severities</option>
                             <option value="1">Severity 1</option>
@@ -702,15 +764,73 @@
                         </select>
                         <select class="field" id="statusFilter" aria-label="Filter by status">
                             <option value="ALL">All statuses</option>
-                            <option value="ACTIVE">Active only</option>
-                            <option value="RESOLVED">Resolved only</option>
+                            <option value="ACTIVE">Active</option>
+                            <option value="ACKNOWLEDGED">Acknowledged</option>
+                            <option value="DISPATCHED">Dispatched</option>
+                            <option value="RESOLVED">Resolved</option>
                         </select>
+                        <select class="field" id="categoryFilter" aria-label="Filter by category">
+                            <option value="ALL">All categories</option>
+                            <option value="MEDICAL">Medical</option>
+                            <option value="ROAD_ACCIDENT">Road Accident</option>
+                            <option value="FIRE">Fire &amp; Rescue</option>
+                            <option value="THEFT">Theft</option>
+                            <option value="PERSONAL_SAFETY">Personal Safety</option>
+                            <option value="NATURAL_DISASTER">Natural Disaster</option>
+                            <option value="OTHER">Other</option>
+                        </select>
+                        <select class="field" id="serviceFilter" aria-label="Filter by requested service">
+                            <option value="ALL">All services</option>
+                            <option value="POLICE">Police</option>
+                            <option value="FIRE_RESCUE">Fire &amp; Rescue</option>
+                            <option value="AMBULANCE_MEDICAL">Ambulance / Medical</option>
+                        </select>
+                        <input class="field" id="dateFromFilter" type="date" aria-label="From date">
+                        <input class="field" id="dateToFilter" type="date" aria-label="To date">
                     </div>
                 </div>
                 <div class="alert-list" id="alerts" aria-live="polite">
                     <div class="empty-state">Connecting to the ResQlink API…</div>
                 </div>
             </section>
+
+            <section id="audit-section" style="margin-top: 28px;">
+                <div class="section-heading">
+                    <div>
+                        <h2>Administrator audit log</h2>
+                        <p>Backend-recorded administrative status transitions and actions.</p>
+                    </div>
+                    <button class="button secondary" id="refreshAuditButton" type="button">↻ Refresh audit log</button>
+                </div>
+                <div class="glass-panel" style="padding: 14px;">
+                    <div class="audit-table-wrap">
+                        <table class="audit-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Admin ID</th>
+                                    <th>Action</th>
+                                    <th>Emergency</th>
+                                    <th>Transition</th>
+                                </tr>
+                            </thead>
+                            <tbody id="auditLogBody">
+                                <tr><td colspan="5" class="section-caption">Loading audit logs…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+            </div>
+
+            <div class="modal-backdrop" id="emergencyDetailModal" hidden role="dialog" aria-modal="true" aria-labelledby="adminDetailTitle">
+                <div class="modal-panel">
+                    <div class="modal-head">
+                        <h2 id="adminDetailTitle" style="margin:0; font-size:1.2rem;">Emergency Details</h2>
+                        <button type="button" class="button secondary" id="closeAdminDetailBtn">Close</button>
+                    </div>
+                    <div id="adminDetailBody"></div>
+                </div>
             </div>
 
             <section id="admin-section">
@@ -725,7 +845,7 @@
                         <h3>Administrator authorization</h3>
                         <p id="adminDescription">Sign in with an administrator account. The backend verifies your role before returning alert data or resolving alerts.</p>
                     </div>
-                    <a class="button" id="signInLink" href="login.html?next=dashboard.html">Sign in</a>
+                    <a class="button" id="signInLink" href="admin-login.html?next=dashboard.html">Sign in</a>
                     <p class="admin-status" id="adminStatus" role="status" aria-live="polite">Checking session…</p>
                 </div>
             </section>
@@ -739,37 +859,63 @@
 
     <script src="api-config.js"></script>
     <script src="auth-session.js"></script>
+    <script src="ui-shell.js"></script>
     <script>
         "use strict";
 
         const auth = window.ResqlinkAuth;
-        const REFRESH_INTERVAL_MS = 10000;
+        const ui = window.ResqlinkUI;
+        const el = ui.el;
+        const REFRESH_INTERVAL_MS = 15000;
         const SEARCH_DEBOUNCE_MS = 250;
+        const VALID_STATUSES = ["ACTIVE", "ACKNOWLEDGED", "DISPATCHED", "RESOLVED"];
+
+        const SEVERITY_COLORS = {
+            1: "#38dfac",
+            2: "#548aff",
+            3: "#ffbf69",
+            4: "#fb923c",
+            5: "#ff4d6d",
+        };
 
         const elements = {
             total: document.getElementById("total"),
             critical: document.getElementById("critical"),
             active: document.getElementById("active"),
             resolved: document.getElementById("resolved"),
+            severityBreakdown: document.getElementById("severityBreakdown"),
+            categoryBreakdown: document.getElementById("categoryBreakdown"),
+            serviceBreakdown: document.getElementById("serviceBreakdown"),
             alerts: document.getElementById("alerts"),
             apiStatus: document.getElementById("apiStatus"),
             apiDot: document.getElementById("apiDot"),
             mapSummary: document.getElementById("mapSummary"),
             mapError: document.getElementById("mapError"),
+            pollingStatusLabel: document.getElementById("pollingStatusLabel"),
             dashboardData: document.getElementById("dashboardData"),
             search: document.getElementById("alertSearch"),
             severityFilter: document.getElementById("severityFilter"),
             statusFilter: document.getElementById("statusFilter"),
+            categoryFilter: document.getElementById("categoryFilter"),
+            serviceFilter: document.getElementById("serviceFilter"),
+            dateFromFilter: document.getElementById("dateFromFilter"),
+            dateToFilter: document.getElementById("dateToFilter"),
             refreshButton: document.getElementById("refreshButton"),
             fitMapButton: document.getElementById("fitMapButton"),
+            refreshAuditButton: document.getElementById("refreshAuditButton"),
+            auditLogBody: document.getElementById("auditLogBody"),
             adminStatus: document.getElementById("adminStatus"),
             signInLink: document.getElementById("signInLink"),
             liveClock: document.getElementById("liveClock"),
-            logoutButton: document.getElementById("logoutButton")
+            logoutButton: document.getElementById("logoutButton"),
+            detailModal: document.getElementById("emergencyDetailModal"),
+            detailBody: document.getElementById("adminDetailBody"),
+            closeDetailBtn: document.getElementById("closeAdminDetailBtn")
         };
 
         let allAlerts = [];
         let hasFittedMap = false;
+        let lastMarkerSignature = "";
         let map = null;
         let markerLayer = null;
         let sessionReady = false;
@@ -832,28 +978,57 @@
 
         function addMarkers(alerts) {
             if (!map || !markerLayer) return;
+
+            const plotted = alerts
+                .map(alert => ({ alert, coords: getValidCoordinates(alert) }))
+                .filter(entry => entry.coords !== null);
+
+            const signature = JSON.stringify(
+                plotted.map(entry => [
+                    entry.alert.id,
+                    entry.alert.severity,
+                    entry.alert.status,
+                    entry.coords.latitude,
+                    entry.coords.longitude,
+                ])
+            );
+
+            elements.mapSummary.textContent =
+                `${plotted.length} alert location${plotted.length === 1 ? "" : "s"} plotted on the map`;
+
+            if (signature === lastMarkerSignature) return;
+            lastMarkerSignature = signature;
             markerLayer.clearLayers();
-            let locationsCount = 0;
 
-            alerts.forEach(alert => {
-                const coordinates = getValidCoordinates(alert);
-                if (!coordinates) return;
+            plotted.forEach(({ alert, coords }) => {
+                const isResolved = alert.status === "RESOLVED";
+                const color = isResolved ? "#38dfac" : (SEVERITY_COLORS[alert.severity] || "#ffbf69");
+                const marker = L.circleMarker([coords.latitude, coords.longitude], {
+                    radius: alert.severity === 5 && !isResolved ? 10 : 8,
+                    color: "#ffffff",
+                    weight: 2,
+                    fillColor: color,
+                    fillOpacity: 0.92
+                });
 
-                locationsCount += 1;
-                const marker = L.marker([coordinates.latitude, coordinates.longitude]);
-                const popup = document.createElement("div");
-                const title = document.createElement("strong");
-                title.textContent = `Alert #${alert.id} — ${alert.label || "Emergency"}`;
-                const detail = document.createElement("div");
-                detail.textContent = `Severity: ${alert.severity}/5 · Priority: ${alert.priority} · ${alert.status}`;
-                popup.append(title, detail);
+                const popup = el("div", {},
+                    el("strong", { text: `Alert #${alert.id} — ${ui.categoryLabel(alert.category)}` }),
+                    el("div", { text: `Severity ${alert.severity}/5 (${alert.label}) · Priority ${alert.priority}` }),
+                    el("div", { text: `Status: ${alert.status}` }),
+                    el("div", {
+                        text: alert.location_accuracy_m != null
+                            ? `GPS accuracy: ±${Math.round(alert.location_accuracy_m)} m`
+                            : "GPS accuracy: not reported"
+                    }),
+                    el("div", {
+                        text: `Requested: ${(alert.requested_services || []).map(ui.serviceLabel).join(", ") || "None"}`
+                    })
+                );
                 marker.bindPopup(popup);
                 markerLayer.addLayer(marker);
             });
 
-            elements.mapSummary.textContent = `${locationsCount} alert location${locationsCount === 1 ? "" : "s"} plotted on the map`;
-
-            if (locationsCount > 0 && !hasFittedMap) {
+            if (plotted.length > 0 && !hasFittedMap) {
                 fitAllMarkers();
                 hasFittedMap = true;
             }
@@ -868,10 +1043,7 @@
         }
 
         function formatDate(value) {
-            if (typeof value !== "string" || !value) return "Time unavailable";
-            const date = new Date(value);
-            if (Number.isNaN(date.getTime())) return "Time unavailable";
-            return date.toLocaleString();
+            return ui.formatDate(value);
         }
 
         function makeTag(text, className) {
@@ -879,6 +1051,157 @@
             tag.className = `tag ${className || ""}`.trim();
             tag.textContent = text;
             return tag;
+        }
+
+        function renderBreakdowns(overview) {
+            const renderList = (target, entries) => {
+                target.replaceChildren();
+                if (!entries.length) {
+                    target.append(el("span", { className: "section-caption", text: "No data yet" }));
+                    return;
+                }
+                entries.forEach(([label, count]) => {
+                    target.append(
+                        el("div", { className: "breakdown-row" },
+                            el("span", { text: label }),
+                            el("strong", { text: String(count) })
+                        )
+                    );
+                });
+            };
+
+            const sevEntries = Object.entries(overview.by_severity || {}).map(([k, v]) => [`Level ${k}`, v]);
+            const catEntries = Object.entries(overview.by_category || {}).map(([k, v]) => [ui.categoryLabel(k), v]);
+            const srvEntries = Object.entries(overview.by_service || {}).map(([k, v]) => [ui.serviceLabel(k), v]);
+            renderList(elements.severityBreakdown, sevEntries);
+            renderList(elements.categoryBreakdown, catEntries);
+            renderList(elements.serviceBreakdown, srvEntries);
+        }
+
+        async function loadOverviewAndAudit() {
+            try {
+                const [overview, audit] = await Promise.all([
+                    auth.request("/admin/overview", { method: "GET", cache: "no-store" }),
+                    auth.request("/admin/audit-logs?limit=50", { method: "GET", cache: "no-store" }),
+                ]);
+                renderBreakdowns(overview);
+                renderAuditLogs(audit.logs || []);
+            } catch (_error) {
+                // Non-fatal if overview/audit is temporarily unavailable; primary alerts error handling runs in loadAlerts.
+            }
+        }
+
+        function renderAuditLogs(logs) {
+            elements.auditLogBody.replaceChildren();
+            if (!logs.length) {
+                elements.auditLogBody.append(
+                    el("tr", {}, el("td", { colSpan: 5, className: "section-caption", text: "No administrative actions logged yet." }))
+                );
+                return;
+            }
+            logs.forEach(entry => {
+                elements.auditLogBody.append(
+                    el("tr", {},
+                        el("td", { text: formatDate(entry.created_at) }),
+                        el("td", { text: String(entry.admin_id || "").slice(0, 8) || "—" }),
+                        el("td", { text: entry.action || "—" }),
+                        el("td", { text: entry.emergency_id ? `#${entry.emergency_id}` : "—" }),
+                        el("td", { text: `${entry.previous_status || "—"} → ${entry.new_status || "—"}` })
+                    )
+                );
+            });
+        }
+
+        async function openEmergencyModal(alertId) {
+            elements.detailModal.hidden = false;
+            elements.detailBody.replaceChildren(el("p", { className: "section-caption", text: "Loading alert details…" }));
+            try {
+                const detail = await auth.request(`/emergencies/${encodeURIComponent(alertId)}`, { method: "GET" });
+                const notesArea = el("textarea", {
+                    className: "notes-area",
+                    maxLength: 2000,
+                    placeholder: "Record responder / administrative notes…"
+                });
+                notesArea.value = detail.admin_notes || "";
+
+                const statusMsg = el("p", { className: "admin-status", text: "" });
+                const actionButtons = ["ACKNOWLEDGED", "DISPATCHED", "RESOLVED"].map(targetStatus => {
+                    const btn = el("button", {
+                        type: "button",
+                        className: targetStatus === "RESOLVED" ? "button resolve" : "button secondary",
+                        disabled: detail.status === targetStatus,
+                        text: targetStatus === "ACKNOWLEDGED"
+                            ? "Acknowledge"
+                            : targetStatus === "DISPATCHED"
+                                ? "Mark Dispatched"
+                                : "Resolve Alert"
+                    });
+                    btn.addEventListener("click", async () => {
+                        btn.disabled = true;
+                        statusMsg.textContent = `Updating status to ${targetStatus}…`;
+                        try {
+                            await auth.request(`/emergencies/${encodeURIComponent(alertId)}/status`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                    status: targetStatus,
+                                    admin_notes: notesArea.value
+                                })
+                            });
+                            await Promise.all([loadAlerts(true), openEmergencyModal(alertId)]);
+                        } catch (error) {
+                            statusMsg.textContent = error.message;
+                            statusMsg.className = "admin-status error";
+                            btn.disabled = false;
+                        }
+                    });
+                    return btn;
+                });
+
+                const historyList = el("ul", { style: "margin:6px 0 0; padding-left:18px; display:grid; gap:6px; font-size:12.5px;" });
+                (detail.status_history || []).forEach(item => {
+                    historyList.append(
+                        el("li", {},
+                            el("strong", { text: `${item.previous_status ? `${item.previous_status} → ` : ""}${item.new_status}` }),
+                            el("span", { className: "section-caption", text: ` · ${formatDate(item.created_at)}` }),
+                            item.note ? el("div", { className: "section-caption", text: item.note }) : null
+                        )
+                    );
+                });
+
+                const coords = getValidCoordinates(detail);
+                elements.detailBody.replaceChildren(
+                    el("div", { style: "display:grid; gap:10px; font-size:13px;" },
+                        el("div", {},
+                            el("strong", { text: `Alert #${detail.id} · ${ui.categoryLabel(detail.category)}` }),
+                            " ",
+                            makeTag(`Status: ${detail.status}`, detail.status.toLowerCase())
+                        ),
+                        el("div", {
+                            text: `Severity ${detail.severity}/5 (${detail.label}) · Priority ${detail.priority} · Reporter ${detail.reporter_ref || "legacy"}`
+                        }),
+                        el("div", {
+                            text: `Recommended: ${(detail.recommended_services || []).map(ui.serviceLabel).join(", ") || "None"} | Requested: ${(detail.requested_services || []).map(ui.serviceLabel).join(", ") || "None"}`
+                        }),
+                        coords
+                            ? el("div", {
+                                text: `Coordinates: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}${detail.location_accuracy_m != null ? ` (±${Math.round(detail.location_accuracy_m)} m)` : ""}`
+                            })
+                            : el("div", { className: "section-caption", text: "GPS coordinates unavailable" }),
+                        detail.notes ? el("div", { text: `Reporter note: ${detail.notes}` }) : null,
+                        el("label", { text: "Administrative notes" }),
+                        notesArea,
+                        el("div", { style: "display:flex; gap:8px; flex-wrap:wrap;" }, ...actionButtons),
+                        statusMsg,
+                        el("div", {},
+                            el("strong", { text: "Status History" }),
+                            historyList
+                        )
+                    )
+                );
+            } catch (error) {
+                elements.detailBody.replaceChildren(el("div", { className: "error-state", text: error.message }));
+            }
         }
 
         function renderAlerts() {
@@ -889,7 +1212,11 @@
                 empty.className = "empty-state";
                 const hasFilters = elements.search.value.trim()
                     || elements.severityFilter.value !== "ALL"
-                    || elements.statusFilter.value !== "ALL";
+                    || elements.statusFilter.value !== "ALL"
+                    || elements.categoryFilter.value !== "ALL"
+                    || elements.serviceFilter.value !== "ALL"
+                    || elements.dateFromFilter.value
+                    || elements.dateToFilter.value;
                 empty.textContent = hasFilters
                     ? "No alerts match the current search and filters."
                     : "No emergency alerts have been recorded yet.";
@@ -908,19 +1235,22 @@
 
                 const title = document.createElement("h3");
                 title.className = "alert-title";
-                title.textContent = `Alert #${alert.id} — ${alert.label || "Emergency"}`;
+                title.textContent = `Alert #${alert.id} — ${ui.categoryLabel(alert.category)} (${alert.label || "Emergency"})`;
                 mainRow.appendChild(title);
 
-                const statusTag = makeTag(status, isResolved ? "resolved" : "active");
+                const statusTag = makeTag(status, status.toLowerCase());
                 mainRow.appendChild(statusTag);
 
                 const meta = document.createElement("div");
                 meta.className = "alert-meta";
                 const severity = Number(alert.severity);
                 const severityClass = severity === 5 ? "critical" : severity >= 3 ? "high" : "";
+                const servicesText = (alert.requested_services || []).map(ui.serviceLabel).join(", ") || "None selected";
                 meta.append(
                     makeTag(`Severity ${alert.severity}/5`, severityClass),
-                    makeTag(`Priority ${alert.priority}`, "")
+                    makeTag(`Priority ${alert.priority}`, ""),
+                    makeTag(`Services: ${servicesText}`, ""),
+                    alert.reporter_ref ? makeTag(`Reporter ${alert.reporter_ref}`, "") : makeTag("Legacy", "")
                 );
 
                 const time = document.createElement("p");
@@ -934,13 +1264,14 @@
                 if (coordinates) {
                     const locationText = document.createElement("span");
                     locationText.className = "section-caption";
-                    locationText.textContent = `Location: ${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)}`;
+                    const acc = alert.location_accuracy_m != null ? ` (±${Math.round(alert.location_accuracy_m)}m)` : "";
+                    locationText.textContent = `Location: ${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)}${acc}`;
                     const locationLink = document.createElement("a");
                     locationLink.className = "map-link";
                     locationLink.href = `https://www.google.com/maps?q=${encodeURIComponent(coordinates.latitude)},${encodeURIComponent(coordinates.longitude)}`;
                     locationLink.target = "_blank";
                     locationLink.rel = "noopener noreferrer";
-                    locationLink.textContent = "↗ View location on Google Maps";
+                    locationLink.textContent = "↗ Google Maps";
                     actions.append(locationText, locationLink);
                 } else {
                     const noLocation = document.createElement("span");
@@ -949,11 +1280,18 @@
                     actions.appendChild(noLocation);
                 }
 
+                const detailsBtn = document.createElement("button");
+                detailsBtn.className = "button secondary";
+                detailsBtn.type = "button";
+                detailsBtn.textContent = "Inspect & Manage";
+                detailsBtn.addEventListener("click", () => openEmergencyModal(alert.id));
+                actions.appendChild(detailsBtn);
+
                 if (!isResolved) {
                     const resolveButton = document.createElement("button");
                     resolveButton.className = "button resolve";
                     resolveButton.type = "button";
-                    resolveButton.textContent = "✓ Resolve alert";
+                    resolveButton.textContent = "✓ Resolve";
                     resolveButton.addEventListener("click", () => resolveEmergency(alert.id, resolveButton));
                     actions.appendChild(resolveButton);
                 }
@@ -972,15 +1310,19 @@
 
             try {
                 await auth.request(
-                    `/emergency/${encodeURIComponent(alertId)}/resolve`,
-                    { method: "PATCH" }
+                    `/emergencies/${encodeURIComponent(alertId)}/status`,
+                    {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: "RESOLVED" })
+                    }
                 );
                 await loadAlerts(true);
             } catch (error) {
                 if (error.code === "expired") {
                     sessionReady = false;
                     clearAuthorizedData();
-                    window.location.replace("login.html?next=dashboard.html&expired=1");
+                    window.location.replace("admin-login.html?next=dashboard.html&expired=1");
                     return;
                 }
                 if (error.status === 403) {
@@ -1002,12 +1344,12 @@
 
             try {
                 const params = new URLSearchParams();
-                if (elements.severityFilter.value !== "ALL") {
-                    params.set("severity", elements.severityFilter.value);
-                }
-                if (elements.statusFilter.value !== "ALL") {
-                    params.set("status", elements.statusFilter.value);
-                }
+                if (elements.severityFilter.value !== "ALL") params.set("severity", elements.severityFilter.value);
+                if (elements.statusFilter.value !== "ALL") params.set("status", elements.statusFilter.value);
+                if (elements.categoryFilter.value !== "ALL") params.set("category", elements.categoryFilter.value);
+                if (elements.serviceFilter.value !== "ALL") params.set("service", elements.serviceFilter.value);
+                if (elements.dateFromFilter.value) params.set("date_from", elements.dateFromFilter.value);
+                if (elements.dateToFilter.value) params.set("date_to", elements.dateToFilter.value);
                 const search = elements.search.value.trim();
                 if (search) params.set("search", search);
                 const query = params.toString();
@@ -1029,7 +1371,7 @@
                         || alert.severity < 1
                         || alert.severity > 5
                         || !Number.isInteger(alert.priority)
-                        || !["ACTIVE", "RESOLVED"].includes(alert.status)
+                        || !VALID_STATUSES.includes(alert.status)
                         || typeof alert.created_at !== "string"
                     )
                 ) {
@@ -1042,12 +1384,14 @@
                 if (!map) initialiseMap();
                 elements.total.textContent = data.count;
                 elements.critical.textContent = allAlerts.filter(alert => Number(alert.severity) === 5).length;
-                elements.active.textContent = allAlerts.filter(alert => String(alert.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
-                elements.resolved.textContent = allAlerts.filter(alert => String(alert.status || "").toUpperCase() === "RESOLVED").length;
+                elements.active.textContent = allAlerts.filter(alert => alert.status !== "RESOLVED").length;
+                elements.resolved.textContent = allAlerts.filter(alert => alert.status === "RESOLVED").length;
 
                 addMarkers(allAlerts);
                 renderAlerts();
+                loadOverviewAndAudit();
                 setApiStatus("online", "API connected");
+                elements.pollingStatusLabel.textContent = `Polling every 15s · Updated ${new Date().toLocaleTimeString()}`;
                 updateAdminStatus("Administrator access verified by the API.", "ok");
                 return true;
             } catch (error) {
@@ -1055,7 +1399,7 @@
                 if (error.code === "expired") {
                     sessionReady = false;
                     clearAuthorizedData();
-                    window.location.replace("login.html?next=dashboard.html&expired=1");
+                    window.location.replace("admin-login.html?next=dashboard.html&expired=1");
                     return false;
                 }
                 if (error.status === 403) {
@@ -1095,7 +1439,7 @@
                 return false;
             }
             if (!token) {
-                window.location.replace("login.html?next=dashboard.html");
+                window.location.replace("admin-login.html?next=dashboard.html");
                 return false;
             }
             try {
@@ -1107,8 +1451,8 @@
                 if (error.code === "expired" || error.code === "unauthenticated") {
                     window.location.replace(
                         error.code === "expired"
-                            ? "login.html?next=dashboard.html&expired=1"
-                            : "login.html?next=dashboard.html"
+                            ? "admin-login.html?next=dashboard.html&expired=1"
+                            : "admin-login.html?next=dashboard.html"
                     );
                     return false;
                 }
@@ -1125,8 +1469,8 @@
             elements.logoutButton.disabled = true;
             try {
                 await auth.logout();
-                window.location.replace("login.html?next=dashboard.html");
-            } catch (error) {
+                window.location.replace("admin-login.html?next=dashboard.html");
+            } catch (_error) {
                 try {
                     auth.clearSession();
                 } catch (clearError) {
@@ -1145,6 +1489,7 @@
 
         function clearAuthorizedData() {
             allAlerts = [];
+            lastMarkerSignature = "";
             isAuthorized = false;
             elements.dashboardData.hidden = true;
             elements.total.textContent = "—";
@@ -1169,13 +1514,21 @@
         }
 
         elements.refreshButton.addEventListener("click", () => loadAlerts(true));
+        elements.refreshAuditButton.addEventListener("click", loadOverviewAndAudit);
         elements.fitMapButton.addEventListener("click", fitAllMarkers);
         elements.search.addEventListener("input", scheduleFilteredLoad);
         elements.severityFilter.addEventListener("change", scheduleFilteredLoad);
         elements.statusFilter.addEventListener("change", scheduleFilteredLoad);
+        elements.categoryFilter.addEventListener("change", scheduleFilteredLoad);
+        elements.serviceFilter.addEventListener("change", scheduleFilteredLoad);
+        elements.dateFromFilter.addEventListener("change", scheduleFilteredLoad);
+        elements.dateToFilter.addEventListener("change", scheduleFilteredLoad);
         elements.logoutButton.addEventListener("click", signOut);
+        elements.closeDetailBtn.addEventListener("click", () => { elements.detailModal.hidden = true; });
+        elements.detailModal.addEventListener("click", event => {
+            if (event.target === elements.detailModal) elements.detailModal.hidden = true;
+        });
 
-        // Highlight the navigation item for the section currently in view.
         document.querySelectorAll(".nav-link").forEach(link => {
             link.addEventListener("click", () => {
                 document.querySelectorAll(".nav-link").forEach(item => item.classList.remove("active"));
@@ -1183,13 +1536,20 @@
             });
         });
 
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden && isAuthorized) {
+                loadAlerts(false);
+            }
+        });
+
         updateClock();
         setInterval(updateClock, 1000);
         verifyAdminSession().then(verified => {
             if (!verified) return;
-            refreshInterval = setInterval(() => loadAlerts(false), REFRESH_INTERVAL_MS);
+            refreshInterval = setInterval(() => {
+                if (!document.hidden) loadAlerts(false);
+            }, REFRESH_INTERVAL_MS);
         });
-
     </script>
 </body>
 </html>

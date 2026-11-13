@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#070d17">
+    <title>ResQlink | Emergency Contacts</title>
+    <link rel="stylesheet" href="theme.css">
+</head>
+<body class="rq-body">
+    <a class="skip-link" href="#main-content">Skip to emergency contacts</a>
+    <header id="rqHeader" class="rq-header"></header>
+
+    <main id="main-content" class="rq-container">
+        <div class="rq-page-head">
+            <div>
+                <p class="rq-kicker">TRUSTED NETWORK</p>
+                <h1 class="rq-title">Emergency Contacts</h1>
+                <p class="rq-subtitle">Manage up to 10 personal emergency contacts with primary designation, click-to-call links, and audited fallback notifications.</p>
+            </div>
+            <span class="rq-pill" id="contactsCounterPill">0 / 10 Contacts</span>
+        </div>
+
+        <div id="contactsBanner" class="rq-banner" hidden role="status" aria-live="polite"></div>
+
+        <div class="rq-grid-2">
+            <section class="rq-card" aria-labelledby="contactFormHeading">
+                <h2 id="contactFormHeading" class="rq-card-title">Add emergency contact</h2>
+                <p class="rq-muted" style="font-size: 13px; margin: 0 0 14px;">
+                    Contacts are strictly scoped to your account via Supabase Row Level Security and backend ownership verification.
+                </p>
+
+                <form id="contactForm">
+                    <input type="hidden" id="editingContactId" value="">
+                    <div class="rq-field">
+                        <label for="contactName">Full name</label>
+                        <input id="contactName" class="rq-input" type="text" maxlength="100" placeholder="e.g. Priya Sharma" required>
+                    </div>
+                    <div class="rq-field">
+                        <label for="contactPhone">Telephone number</label>
+                        <input id="contactPhone" class="rq-input" type="tel" maxlength="32" placeholder="+91 9876543210" required>
+                    </div>
+                    <div class="rq-field">
+                        <label for="contactRelationship">Relationship</label>
+                        <input id="contactRelationship" class="rq-input" type="text" maxlength="60" placeholder="Mother, Spouse, Neighbor, Doctor…" required>
+                    </div>
+                    <div class="rq-field">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                            <input id="contactPrimary" type="checkbox">
+                            Mark as primary emergency contact
+                        </label>
+                    </div>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button id="saveContactBtn" type="submit" class="rq-btn rq-btn-primary">Save Contact</button>
+                        <button id="cancelEditBtn" type="button" class="rq-btn" hidden>Cancel Edit</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="rq-card" aria-labelledby="savedContactsHeading">
+                <h2 id="savedContactsHeading" class="rq-card-title">Saved contacts</h2>
+                <p class="rq-muted" style="font-size: 13px; margin: 0 0 12px;">
+                    If no SMS/WhatsApp provider is configured on the server, ResQlink never fakes delivery and provides direct <code>tel:</code> and copy fallbacks.
+                </p>
+                <div id="contactsList" aria-live="polite">
+                    <p class="rq-muted"><span class="rq-spinner" aria-hidden="true"></span> Loading contacts…</p>
+                </div>
+            </section>
+        </div>
+
+        <section class="rq-card" style="margin-top: 20px;" aria-labelledby="notifyAuditHeading">
+            <div class="rq-page-head" style="margin-bottom: 12px;">
+                <div>
+                    <p class="rq-kicker">NOTIFICATION AUDIT</p>
+                    <h2 id="notifyAuditHeading" style="margin:0; font-size:1.15rem;">Contact notification attempt log</h2>
+                </div>
+                <button type="button" id="refreshNotifyLogsBtn" class="rq-btn rq-btn-sm">Refresh Log</button>
+            </div>
+            <div id="notifyLogsList">
+                <p class="rq-muted">Loading notification audit records…</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="rq-footer">ResQlink Emergency Contacts · Consent-verified contact workflow.</footer>
+
+    <script src="api-config.js"></script>
+    <script src="auth-session.js"></script>
+    <script src="ui-shell.js"></script>
+    <script>
+        "use strict";
+        (() => {
+            const auth = window.ResqlinkAuth;
+            const ui = window.ResqlinkUI;
+            const el = ui.el;
+
+            const form = document.getElementById("contactForm");
+            const editingIdInput = document.getElementById("editingContactId");
+            const nameInput = document.getElementById("contactName");
+            const phoneInput = document.getElementById("contactPhone");
+            const relInput = document.getElementById("contactRelationship");
+            const primaryInput = document.getElementById("contactPrimary");
+            const saveBtn = document.getElementById("saveContactBtn");
+            const cancelBtn = document.getElementById("cancelEditBtn");
+            const heading = document.getElementById("contactFormHeading");
+            const listEl = document.getElementById("contactsList");
+            const banner = document.getElementById("contactsBanner");
+            const counterPill = document.getElementById("contactsCounterPill");
+            const notifyLogsList = document.getElementById("notifyLogsList");
+
+            function resetForm() {
+                editingIdInput.value = "";
+                form.reset();
+                heading.textContent = "Add emergency contact";
+                saveBtn.textContent = "Save Contact";
+                cancelBtn.hidden = true;
+            }
+
+            async function loadLogs() {
+                try {
+                    const data = await auth.request("/contacts/notifications?limit=15", { method: "GET" });
+                    const logs = data.notifications || [];
+                    notifyLogsList.replaceChildren();
+                    if (logs.length === 0) {
+                        notifyLogsList.append(el("div", { className: "rq-empty", text: "No notification attempts recorded yet." }));
+                        return;
+                    }
+                    const stack = el("div", { style: "display:grid; gap:8px;" });
+                    logs.forEach(log => {
+                        stack.append(
+                            el("div", { style: "padding:10px 12px; border:1px solid var(--rq-border); border-radius:10px; font-size:13px;" },
+                                el("div", { style: "display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;" },
+                                    el("strong", { text: `${log.channel} · ${log.status}` }),
+                                    el("span", { className: "rq-muted", text: ui.formatDate(log.created_at) })
+                                ),
+                                el("div", { className: "rq-muted", style: "margin-top:4px;", text: log.detail || "" })
+                            )
+                        );
+                    });
+                    notifyLogsList.append(stack);
+                } catch (error) {
+                    notifyLogsList.replaceChildren(el("div", { className: "rq-banner error", text: error.message }));
+                }
+            }
+
+            async function loadContacts() {
+                listEl.replaceChildren(el("p", { className: "rq-muted" }, el("span", { className: "rq-spinner" }), " Loading contacts…"));
+                try {
+                    const data = await auth.request("/contacts", { method: "GET" });
+                    const contacts = data.contacts || [];
+                    counterPill.textContent = `${contacts.length} / 10 Contacts`;
+                    listEl.replaceChildren();
+                    if (contacts.length === 0) {
+                        listEl.append(el("div", { className: "rq-empty", text: "No emergency contacts added yet. Add a trusted person using the form." }));
+                        return;
+                    }
+
+                    const stack = el("div", { style: "display:grid; gap:12px;" });
+                    contacts.forEach(contact => {
+                        const editBtn = el("button", { type: "button", className: "rq-btn rq-btn-sm", text: "Edit" });
+                        editBtn.addEventListener("click", () => {
+                            editingIdInput.value = String(contact.id);
+                            nameInput.value = contact.name;
+                            phoneInput.value = contact.phone;
+                            relInput.value = contact.relationship;
+                            primaryInput.checked = Boolean(contact.is_primary);
+                            heading.textContent = `Edit ${contact.name}`;
+                            saveBtn.textContent = "Update Contact";
+                            cancelBtn.hidden = false;
+                            nameInput.focus();
+                        });
+
+                        const primaryBtn = contact.is_primary ? null : el("button", {
+                            type: "button",
+                            className: "rq-btn rq-btn-sm",
+                            text: "Set Primary"
+                        });
+                        if (primaryBtn) {
+                            primaryBtn.addEventListener("click", async () => {
+                                primaryBtn.disabled = true;
+                                try {
+                                    await auth.request(`/contacts/${encodeURIComponent(contact.id)}`, {
+                                        method: "PATCH",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ is_primary: true })
+                                    });
+                                    ui.showBanner(banner, `${contact.name} is now your primary emergency contact.`, "success");
+                                    await loadContacts();
+                                } catch (error) {
+                                    ui.showBanner(banner, error.message, "error");
+                                }
+                            });
+                        }
+
+                        const deleteBtn = el("button", { type: "button", className: "rq-btn rq-btn-sm rq-btn-danger", text: "Delete" });
+                        deleteBtn.addEventListener("click", async () => {
+                            if (!window.confirm(`Delete emergency contact "${contact.name}" (${contact.phone})?`)) return;
+                            deleteBtn.disabled = true;
+                            try {
+                                await auth.request(`/contacts/${encodeURIComponent(contact.id)}`, { method: "DELETE" });
+                                ui.showBanner(banner, `Deleted ${contact.name}.`, "success");
+                                if (editingIdInput.value === String(contact.id)) resetForm();
+                                await loadContacts();
+                            } catch (error) {
+                                ui.showBanner(banner, error.message, "error");
+                                deleteBtn.disabled = false;
+                            }
+                        });
+
+                        const copyBtn = el("button", { type: "button", className: "rq-btn rq-btn-sm", text: "Copy Details" });
+                        copyBtn.addEventListener("click", async () => {
+                            const text = `${contact.name} (${contact.relationship}): ${contact.phone}`;
+                            try {
+                                await navigator.clipboard.writeText(text);
+                                ui.showBanner(banner, `Copied contact details for ${contact.name}.`, "success");
+                            } catch (_err) {
+                                ui.showBanner(banner, text, "warning");
+                            }
+                            await auth.request(`/contacts/${encodeURIComponent(contact.id)}/notify`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ channel: "MANUAL_COPY", consent_confirmed: true })
+                            }).catch(() => {});
+                            loadLogs();
+                        });
+
+                        const notifyBtn = el("button", { type: "button", className: "rq-btn rq-btn-sm rq-btn-primary", text: "Send SMS Alert" });
+                        notifyBtn.addEventListener("click", async () => {
+                            if (!window.confirm(`Confirm consent to attempt alerting ${contact.name} (${contact.phone})?`)) return;
+                            notifyBtn.disabled = true;
+                            try {
+                                const res = await auth.request(`/contacts/${encodeURIComponent(contact.id)}/notify`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                        channel: "SMS",
+                                        consent_confirmed: true,
+                                        message_preview: "Emergency check-in requested via ResQlink."
+                                    })
+                                });
+                                ui.showBanner(
+                                    banner,
+                                    res.sent ? `SMS sent to ${contact.name}.` : `${res.detail} (Manual call link: ${res.manual_fallback.tel_uri})`,
+                                    res.sent ? "success" : "warning"
+                                );
+                                await loadLogs();
+                            } catch (error) {
+                                ui.showBanner(banner, error.message, "error");
+                            } finally {
+                                notifyBtn.disabled = false;
+                            }
+                        });
+
+                        stack.append(
+                            el("article", { className: "rq-card", style: "padding:14px; background:rgba(8,14,25,0.65);" },
+                                el("div", { style: "display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;" },
+                                    el("div", {},
+                                        el("strong", { text: contact.name }),
+                                        contact.is_primary
+                                            ? el("span", { className: "rq-pill status-DISPATCHED", style: "margin-left:8px;", text: "Primary" })
+                                            : null
+                                    ),
+                                    el("span", { className: "rq-muted", style: "font-size:12.5px;", text: contact.relationship })
+                                ),
+                                el("p", { style: "margin:6px 0 10px; font-size:14px;", text: contact.phone }),
+                                el("div", { style: "display:flex; gap:6px; flex-wrap:wrap;" },
+                                    el("a", { href: `tel:${contact.phone}`, className: "rq-btn rq-btn-sm rq-btn-danger", text: "Call (tel:)" }),
+                                    copyBtn,
+                                    notifyBtn,
+                                    primaryBtn,
+                                    editBtn,
+                                    deleteBtn
+                                )
+                            )
+                        );
+                    });
+                    listEl.append(stack);
+                } catch (error) {
+                    listEl.replaceChildren();
+                    ui.showBanner(banner, `Could not load contacts: ${error.message}`, "error");
+                }
+            }
+
+            form.addEventListener("submit", async event => {
+                event.preventDefault();
+                if (!form.reportValidity()) return;
+                saveBtn.disabled = true;
+                ui.showBanner(banner, "");
+                const payload = {
+                    name: nameInput.value.trim(),
+                    phone: phoneInput.value.trim(),
+                    relationship: relInput.value.trim(),
+                    is_primary: primaryInput.checked
+                };
+                const editId = editingIdInput.value;
+                try {
+                    if (editId) {
+                        await auth.request(`/contacts/${encodeURIComponent(editId)}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(payload)
+                        });
+                        ui.showBanner(banner, "Emergency contact updated.", "success");
+                    } else {
+                        await auth.request("/contacts", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(payload)
+                        });
+                        ui.showBanner(banner, "Emergency contact saved.", "success");
+                    }
+                    resetForm();
+                    await loadContacts();
+                } catch (error) {
+                    ui.showBanner(banner, error.message, "error");
+                } finally {
+                    saveBtn.disabled = false;
+                }
+            });
+
+            cancelBtn.addEventListener("click", resetForm);
+            document.getElementById("refreshNotifyLogsBtn").addEventListener("click", loadLogs);
+
+            (async () => {
+                try {
+                    const user = await ui.initNav("contacts", { requireAuth: true, nextPage: "contacts.html" });
+                    if (user) {
+                        await Promise.all([loadContacts(), loadLogs()]);
+                    }
+                } catch (error) {
+                    ui.showBanner(banner, error.message, "error");
+                }
+            })();
+        })();
+    </script>
+</body>
+</html>

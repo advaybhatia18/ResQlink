@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0a111c">
+    <meta name="referrer" content="no-referrer">
+    <title>ResQlink | Administrator Access</title>
+    <link rel="stylesheet" href="auth.css">
+</head>
+<body class="auth-page">
+    <main class="auth-shell">
+        <aside class="auth-aside">
+            <a class="auth-brand" href="index.html" aria-label="ResQlink home">
+                <span class="auth-brand-mark" aria-hidden="true">R</span>
+                ResQ<span>link</span>
+            </a>
+            <div class="auth-aside-copy">
+                <p class="auth-kicker">Responder Command / Verified Access</p>
+                <h1>Server-verified <span>ADMIN</span> portal.</h1>
+                <p>Administrator access is verified exclusively on the backend against your Supabase profile role. Standard accounts cannot self-promote or bypass command center restrictions.</p>
+            </div>
+            <div class="auth-demo-note">
+                <strong>SECURITY NOTICE</strong><br>
+                No separate shared admin password exists. Sign in with an account whose <code>public.profiles.role</code> is set to <code>ADMIN</code>.
+            </div>
+        </aside>
+
+        <section class="auth-panel" aria-labelledby="adminLoginHeading">
+            <p class="auth-kicker">Command Center &amp; Simulator</p>
+            <h2 id="adminLoginHeading">Administrator sign in.</h2>
+            <p class="auth-subtitle">Authenticate with Supabase Auth to open the Emergency Command Center or Simulator.</p>
+
+            <form id="adminLoginForm">
+                <div class="auth-field">
+                    <label for="adminEmail">Administrator email</label>
+                    <div class="auth-input-wrap">
+                        <input id="adminEmail" name="adminEmail" type="email" autocomplete="username"
+                            inputmode="email" maxlength="254" placeholder="admin@example.com" required>
+                    </div>
+                </div>
+
+                <div class="auth-field">
+                    <label for="adminPassword">Password</label>
+                    <div class="auth-input-wrap">
+                        <input id="adminPassword" name="adminPassword" type="password"
+                            autocomplete="current-password" maxlength="128"
+                            placeholder="Enter your password" required>
+                        <button class="auth-toggle" type="button" data-password-toggle="adminPassword"
+                            aria-label="Show password" aria-pressed="false">Show</button>
+                    </div>
+                </div>
+
+                <button class="auth-submit" id="adminLoginButton" type="submit">Verify &amp; open Command Center</button>
+                <p class="auth-message" id="adminLoginMessage" role="status" aria-live="polite"></p>
+            </form>
+
+            <hr class="auth-divider">
+            <p class="auth-footer">
+                Not an administrator? <a href="login.html">Member sign in</a> · <a href="index.html">Back to home</a>
+            </p>
+        </section>
+    </main>
+    <script src="api-config.js"></script>
+    <script src="auth-session.js"></script>
+    <script src="auth-pages.js"></script>
+</body>
+</html>

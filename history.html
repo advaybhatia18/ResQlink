@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#070d17">
+    <title>ResQlink | Emergency History</title>
+    <link rel="stylesheet" href="theme.css">
+</head>
+<body class="rq-body">
+    <a class="skip-link" href="#main-content">Skip to emergency history</a>
+    <header id="rqHeader" class="rq-header"></header>
+
+    <main id="main-content" class="rq-container">
+        <div class="rq-page-head">
+            <div>
+                <p class="rq-kicker">PERSONAL RECORDS</p>
+                <h1 class="rq-title">Emergency History</h1>
+                <p class="rq-subtitle">Inspect your submitted emergency reports, requested services, location details, and responder status timeline.</p>
+            </div>
+            <a class="rq-btn rq-btn-danger" href="sos.html">New SOS Alert</a>
+        </div>
+
+        <div id="historyBanner" class="rq-banner" hidden role="status" aria-live="polite"></div>
+
+        <section class="rq-card" style="margin-bottom: 18px;" aria-label="History filters">
+            <div class="rq-grid-3">
+                <div class="rq-field" style="margin:0;">
+                    <label for="historyStatusFilter">Status</label>
+                    <select id="historyStatusFilter" class="rq-select">
+                        <option value="">All statuses</option>
+                        <option value="ACTIVE">Active</option>
+                        <option value="ACKNOWLEDGED">Acknowledged</option>
+                        <option value="DISPATCHED">Dispatched</option>
+                        <option value="RESOLVED">Resolved</option>
+                    </select>
+                </div>
+                <div class="rq-field" style="margin:0;">
+                    <label for="historyCategoryFilter">Category</label>
+                    <select id="historyCategoryFilter" class="rq-select">
+                        <option value="">All categories</option>
+                        <option value="MEDICAL">Medical Emergency</option>
+                        <option value="ROAD_ACCIDENT">Road Accident</option>
+                        <option value="FIRE">Fire &amp; Rescue</option>
+                        <option value="THEFT">Theft / Intrusion</option>
+                        <option value="PERSONAL_SAFETY">Personal Safety</option>
+                        <option value="NATURAL_DISASTER">Natural Disaster</option>
+                        <option value="OTHER">Other Urgent Situation</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                    <button type="button" id="historyRefreshBtn" class="rq-btn rq-btn-primary">Refresh History</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="historyList" aria-live="polite">
+            <p class="rq-muted"><span class="rq-spinner" aria-hidden="true"></span> Loading your emergency history…</p>
+        </section>
+    </main>
+
+    <div class="rq-modal-backdrop" id="historyDetailModal" hidden role="dialog" aria-modal="true" aria-labelledby="detailModalTitle">
+        <div class="rq-modal">
+            <div class="rq-modal-head">
+                <h2 id="detailModalTitle" style="margin:0;">Emergency Details</h2>
+                <button type="button" class="rq-btn rq-btn-sm" id="closeDetailModalBtn">Close</button>
+            </div>
+            <div id="detailModalBody"></div>
+        </div>
+    </div>
+
+    <footer class="rq-footer">ResQlink Emergency History · Private to your authenticated account.</footer>
+
+    <script src="api-config.js"></script>
+    <script src="auth-session.js"></script>
+    <script src="ui-shell.js"></script>
+    <script>
+        "use strict";
+        (() => {
+            const auth = window.ResqlinkAuth;
+            const ui = window.ResqlinkUI;
+            const el = ui.el;
+
+            const statusFilter = document.getElementById("historyStatusFilter");
+            const categoryFilter = document.getElementById("historyCategoryFilter");
+            const listEl = document.getElementById("historyList");
+            const banner = document.getElementById("historyBanner");
+            const modal = document.getElementById("historyDetailModal");
+            const modalBody = document.getElementById("detailModalBody");
+
+            async function openDetail(alertId) {
+                modal.hidden = false;
+                modalBody.replaceChildren(el("p", { className: "rq-muted", text: "Loading timeline and details…" }));
+                try {
+                    const detail = await auth.request(`/emergencies/${encodeURIComponent(alertId)}`, { method: "GET" });
+                    const history = detail.status_history || [];
+                    const requested = (detail.requested_services || []).map(ui.serviceLabel).join(", ") || "None specified";
+                    const recommended = (detail.recommended_services || []).map(ui.serviceLabel).join(", ") || "None";
+
+                    const timeline = el("ul", { style: "margin:8px 0 0; padding-left:18px; display:grid; gap:6px;" });
+                    history.forEach(item => {
+                        timeline.append(
+                            el("li", {},
+                                el("strong", { text: item.new_status }),
+                                el("span", { className: "rq-muted", text: ` · ${ui.formatDate(item.created_at)}` }),
+                                item.note ? el("div", { className: "rq-muted", style: "font-size:12.5px;", text: item.note }) : null
+                            )
+                        );
+                    });
+
+                    modalBody.replaceChildren(
+                        el("div", { style: "display:grid; gap:10px; font-size:14px;" },
+                            el("div", {}, el("strong", { text: `Alert #${detail.id} — ${ui.categoryLabel(detail.category)}` })),
+                            el("div", {},
+                                el("span", { className: `rq-pill sev-${detail.severity}`, text: `Severity ${detail.severity}/5 (${detail.label})` }),
+                                " ",
+                                el("span", { className: `rq-pill status-${detail.status}`, text: detail.status })
+                            ),
+                            el("div", { text: `Priority score: ${detail.priority}` }),
+                            el("div", { text: `Recommended services: ${recommended}` }),
+                            el("div", { text: `Requested services: ${requested}` }),
+                            detail.notes ? el("div", { text: `Your note: ${detail.notes}` }) : null,
+                            detail.admin_notes ? el("div", { className: "rq-banner warning", text: `Responder note: ${detail.admin_notes}` }) : null,
+                            el("div", {},
+                                el("strong", { text: "Status History" }),
+                                timeline
+                            )
+                        )
+                    );
+                } catch (error) {
+                    modalBody.replaceChildren(el("div", { className: "rq-banner error", text: error.message }));
+                }
+            }
+
+            async function loadHistory() {
+                ui.showBanner(banner, "");
+                listEl.replaceChildren(el("p", { className: "rq-muted" }, el("span", { className: "rq-spinner" }), " Loading records…"));
+                const params = new URLSearchParams();
+                if (statusFilter.value) params.set("status", statusFilter.value);
+                if (categoryFilter.value) params.set("category", categoryFilter.value);
+                const query = params.toString();
+
+                try {
+                    const data = await auth.request(`/emergencies/me${query ? `?${query}` : ""}`, { method: "GET" });
+                    const alerts = data.emergencies || [];
+                    listEl.replaceChildren();
+                    if (alerts.length === 0) {
+                        listEl.append(el("div", { className: "rq-empty", text: "No emergency alerts match your current filters." }));
+                        return;
+                    }
+                    const stack = el("div", { style: "display:grid; gap:12px;" });
+                    alerts.forEach(alert => {
+                        const hasCoords = typeof alert.latitude === "number" && typeof alert.longitude === "number";
+                        const requested = (alert.requested_services || []).map(ui.serviceLabel).join(", ") || "None";
+                        const recommended = (alert.recommended_services || []).map(ui.serviceLabel).join(", ") || "None";
+
+                        const detailBtn = el("button", {
+                            type: "button",
+                            className: "rq-btn rq-btn-sm rq-btn-primary",
+                            text: "View Timeline & Details"
+                        });
+                        detailBtn.addEventListener("click", () => openDetail(alert.id));
+
+                        stack.append(
+                            el("article", { className: "rq-card" },
+                                el("div", { style: "display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;" },
+                                    el("h2", { style: "margin:0; font-size:1.08rem;", text: `Alert #${alert.id} · ${ui.categoryLabel(alert.category)}` }),
+                                    el("div", { style: "display:flex; gap:6px; flex-wrap:wrap;" },
+                                        el("span", { className: `rq-pill sev-${alert.severity}`, text: `Sev ${alert.severity}/5 · ${alert.label}` }),
+                                        el("span", { className: `rq-pill status-${alert.status}`, text: alert.status })
+                                    )
+                                ),
+                                el("p", { className: "rq-muted", style: "margin:8px 0; font-size:13px;" },
+                                    `Reported: ${ui.formatDate(alert.created_at)} · Priority ${alert.priority}`
+                                ),
+                                el("p", { style: "margin:4px 0; font-size:13px;" },
+                                    `Requested services: ${requested} (Recommended: ${recommended})`
+                                ),
+                                el("div", { style: "display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:10px;" },
+                                    hasCoords
+                                        ? el("a", {
+                                            href: `https://www.google.com/maps?q=${encodeURIComponent(alert.latitude)},${encodeURIComponent(alert.longitude)}`,
+                                            target: "_blank",
+                                            rel: "noopener noreferrer",
+                                            text: `Location: ${alert.latitude.toFixed(5)}, ${alert.longitude.toFixed(5)}${alert.location_accuracy_m != null ? ` (±${Math.round(alert.location_accuracy_m)}m)` : ""}`
+                                        })
+                                        : el("span", { className: "rq-muted", style: "font-size:13px;", text: "GPS location not provided" }),
+                                    detailBtn
+                                )
+                            )
+                        );
+                    });
+                    listEl.append(stack);
+                } catch (error) {
+                    listEl.replaceChildren();
+                    ui.showBanner(banner, `Could not load emergency history: ${error.message}`, "error");
+                }
+            }
+
+            document.getElementById("closeDetailModalBtn").addEventListener("click", () => { modal.hidden = true; });
+            modal.addEventListener("click", event => { if (event.target === modal) modal.hidden = true; });
+            document.getElementById("historyRefreshBtn").addEventListener("click", loadHistory);
+            statusFilter.addEventListener("change", loadHistory);
+            categoryFilter.addEventListener("change", loadHistory);
+
+            (async () => {
+                try {
+                    const user = await ui.initNav("history", { requireAuth: true, nextPage: "history.html" });
+                    if (user) await loadHistory();
+                } catch (error) {
+                    ui.showBanner(banner, error.message, "error");
+                }
+            })();
+        })();
+    </script>
+</body>
+</html>

@@ -165,6 +165,7 @@
 
     window.ResqlinkApi = Object.freeze({
         getCurrentUser,
+        request,
         submitEmergency,
         clearSession
     });

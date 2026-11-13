@@ -13,9 +13,20 @@
         button.textContent = busy ? label : button.dataset.defaultLabel;
     }
 
-    function postLoginDestination() {
+    const ALLOWED_NEXT_PAGES = new Set([
+        "index.html",
+        "sos.html",
+        "user-dashboard.html",
+        "history.html",
+        "contacts.html",
+        "settings.html",
+        "dashboard.html",
+        "simulator.html",
+    ]);
+
+    function postLoginDestination(defaultPage = "user-dashboard.html") {
         const target = new URLSearchParams(window.location.search).get("next");
-        return target === "dashboard.html" ? "dashboard.html" : "index.html";
+        return ALLOWED_NEXT_PAGES.has(target) ? target : defaultPage;
     }
 
     function configurePasswordToggles() {
@@ -190,6 +201,7 @@
 
     function setupPasswordReset() {
         const form = document.getElementById("passwordResetForm");
+        const requestForm = document.getElementById("recoveryRequestForm");
         if (!form) return;
         const message = document.getElementById("resetMessage");
         const button = document.getElementById("resetButton");
@@ -201,14 +213,51 @@
         if (recoveryToken && type === "recovery") {
             window.history.replaceState(null, document.title, window.location.pathname);
             form.hidden = false;
-            showMessage(message, "Choose a new password for your account.", "notice");
+            if (requestForm) requestForm.hidden = true;
+            showMessage(message, "Recovery link verified. Choose a new password for your account.", "notice");
         } else {
             form.hidden = true;
-            showMessage(
-                message,
-                "This recovery link is missing or invalid. Request a new link from the sign-in page.",
-                "error"
-            );
+            if (requestForm) {
+                requestForm.hidden = false;
+                showMessage(
+                    message,
+                    "Enter your email address below to receive a password recovery link.",
+                    "notice"
+                );
+                const reqBtn = document.getElementById("recoveryRequestButton");
+                const reqEmail = document.getElementById("recoveryRequestEmail");
+                const reqMsg = document.getElementById("recoveryRequestMessage");
+                if (reqBtn) reqBtn.dataset.defaultLabel = reqBtn.textContent.trim();
+                requestForm.addEventListener("submit", async event => {
+                    event.preventDefault();
+                    if (!requestForm.reportValidity()) return;
+                    setBusy(reqBtn, true, "Sending instructions…");
+                    showMessage(reqMsg, "");
+                    try {
+                        const result = await auth.request("/password-recovery", {
+                            method: "POST",
+                            skipSessionToken: true,
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ email: reqEmail.value.trim() })
+                        });
+                        showMessage(
+                            reqMsg,
+                            result.message || "If an account exists for that email, recovery instructions will be sent.",
+                            "success"
+                        );
+                    } catch (error) {
+                        showMessage(reqMsg, error.message);
+                    } finally {
+                        setBusy(reqBtn, false, "Sending instructions…");
+                    }
+                });
+            } else {
+                showMessage(
+                    message,
+                    "This recovery link is missing or invalid. Request a new link from the sign-in page.",
+                    "error"
+                );
+            }
         }
 
         form.addEventListener("submit", async event => {
@@ -264,8 +313,69 @@
         });
     }
 
+    function setupAdminLogin() {
+        const form = document.getElementById("adminLoginForm");
+        if (!form) return;
+        const message = document.getElementById("adminLoginMessage");
+        const button = document.getElementById("adminLoginButton");
+        button.dataset.defaultLabel = button.textContent.trim();
+
+        async function checkAdminAndRedirect() {
+            const user = await auth.getCurrentUser();
+            if (user.role !== "ADMIN") {
+                throw new auth.AuthError(
+                    "This account does not have server-verified ADMIN privileges.",
+                    403,
+                    "forbidden"
+                );
+            }
+            await auth.request("/admin/overview", { method: "GET" });
+            window.location.replace(postLoginDestination("dashboard.html"));
+        }
+
+        if (new URLSearchParams(window.location.search).get("expired") === "1") {
+            showMessage(message, "Your administrator session expired. Sign in again.", "notice");
+        }
+
+        try {
+            if (auth.getAccessToken()) {
+                checkAdminAndRedirect().catch(error => {
+                    if (error.status === 403) {
+                        showMessage(message, error.message, "error");
+                    }
+                });
+            }
+        } catch (_err) {
+            // ignore storage errors until submit
+        }
+
+        form.addEventListener("submit", async event => {
+            event.preventDefault();
+            if (!form.reportValidity()) return;
+            const email = document.getElementById("adminEmail").value.trim();
+            const password = document.getElementById("adminPassword").value;
+            setBusy(button, true, "Verifying administrator access…");
+            showMessage(message, "");
+            try {
+                const result = await auth.request("/login", {
+                    method: "POST",
+                    skipSessionToken: true,
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email, password })
+                });
+                auth.storeAccessToken(result && result.access_token);
+                await checkAdminAndRedirect();
+            } catch (error) {
+                showMessage(message, error.message);
+            } finally {
+                setBusy(button, false, "Verifying administrator access…");
+            }
+        });
+    }
+
     configurePasswordToggles();
     setupLogin();
     setupRegistration();
     setupPasswordReset();
+    setupAdminLogin();
 })();

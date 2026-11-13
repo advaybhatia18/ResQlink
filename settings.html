@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#070d17">
+    <title>ResQlink | Account Settings</title>
+    <link rel="stylesheet" href="theme.css">
+</head>
+<body class="rq-body">
+    <a class="skip-link" href="#main-content">Skip to account settings</a>
+    <header id="rqHeader" class="rq-header"></header>
+
+    <main id="main-content" class="rq-container">
+        <div class="rq-page-head">
+            <div>
+                <p class="rq-kicker">ACCOUNT PREFERENCES</p>
+                <h1 class="rq-title">Account Settings</h1>
+                <p class="rq-subtitle">Update your profile details, change your password, access emergency contacts, or request account deletion.</p>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <a class="rq-btn" href="contacts.html">Emergency Contacts</a>
+                <button type="button" id="settingsLogoutBtn" class="rq-btn">Sign out</button>
+            </div>
+        </div>
+
+        <div id="settingsBanner" class="rq-banner" hidden role="status" aria-live="polite"></div>
+
+        <div class="rq-grid-2">
+            <section class="rq-card" aria-labelledby="profileHeading">
+                <h2 id="profileHeading" class="rq-card-title">Profile information</h2>
+                <form id="profileForm">
+                    <div class="rq-field">
+                        <label for="profileEmailInput">Email address</label>
+                        <input id="profileEmailInput" class="rq-input" type="email" disabled>
+                    </div>
+                    <div class="rq-field">
+                        <label for="profileRoleInput">Assigned role (server-managed)</label>
+                        <input id="profileRoleInput" class="rq-input" type="text" disabled>
+                    </div>
+                    <div class="rq-field">
+                        <label for="profileNameInput">Full name</label>
+                        <input id="profileNameInput" class="rq-input" type="text" minlength="2" maxlength="100" required>
+                    </div>
+                    <div class="rq-field">
+                        <label for="profilePhoneInput">Phone number (optional)</label>
+                        <input id="profilePhoneInput" class="rq-input" type="tel" maxlength="32" placeholder="+91 9876543210">
+                    </div>
+                    <button id="saveProfileBtn" type="submit" class="rq-btn rq-btn-primary">Save Profile</button>
+                </form>
+            </section>
+
+            <section class="rq-card" aria-labelledby="passwordHeading">
+                <h2 id="passwordHeading" class="rq-card-title">Change password</h2>
+                <p class="rq-muted" style="font-size: 13px; margin: 0 0 14px;">Updates your Supabase Auth password using your active verified session.</p>
+                <form id="changePasswordForm">
+                    <div class="rq-field">
+                        <label for="settingsNewPassword">New password</label>
+                        <input id="settingsNewPassword" class="rq-input" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+                    </div>
+                    <div class="rq-field">
+                        <label for="settingsConfirmPassword">Confirm new password</label>
+                        <input id="settingsConfirmPassword" class="rq-input" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+                    </div>
+                    <button id="updatePasswordBtn" type="submit" class="rq-btn rq-btn-primary">Update Password</button>
+                </form>
+            </section>
+        </div>
+
+        <section class="rq-card" style="margin-top: 20px; border-color: rgba(239, 68, 68, 0.35);" aria-labelledby="deletionHeading">
+            <h2 id="deletionHeading" class="rq-card-title">Account deletion &amp; data retention</h2>
+            <p class="rq-muted" style="font-size: 13.5px;">
+                Deleting an account cascades deletion of owned emergency alerts, contacts, and coordinates in Supabase.
+                Submitting a request records your deletion timestamp for operator/Supabase Auth finalization.
+            </p>
+            <p id="deletionStatusText" class="rq-muted" style="font-size: 13px;"></p>
+            <button id="requestDeletionBtn" type="button" class="rq-btn rq-btn-danger">Request Account Deletion</button>
+        </section>
+    </main>
+
+    <footer class="rq-footer">ResQlink Account Settings · Role and ownership remain server-enforced.</footer>
+
+    <script src="api-config.js"></script>
+    <script src="auth-session.js"></script>
+    <script src="ui-shell.js"></script>
+    <script>
+        "use strict";
+        (() => {
+            const auth = window.ResqlinkAuth;
+            const ui = window.ResqlinkUI;
+            const banner = document.getElementById("settingsBanner");
+
+            async function init() {
+                let user;
+                try {
+                    user = await ui.initNav("settings", { requireAuth: true, nextPage: "settings.html" });
+                } catch (error) {
+                    ui.showBanner(banner, error.message, "error");
+                    return;
+                }
+                if (!user) return;
+
+                document.getElementById("profileEmailInput").value = user.email || "";
+                document.getElementById("profileRoleInput").value = user.role || "USER";
+                document.getElementById("profileNameInput").value = user.name || "";
+                document.getElementById("profilePhoneInput").value = user.phone || "";
+                document.getElementById("deletionStatusText").textContent = user.deletion_requested_at
+                    ? `Deletion request recorded at ${ui.formatDate(user.deletion_requested_at)}.`
+                    : "No deletion request has been submitted for this account.";
+
+                document.getElementById("profileForm").addEventListener("submit", async event => {
+                    event.preventDefault();
+                    const btn = document.getElementById("saveProfileBtn");
+                    btn.disabled = true;
+                    try {
+                        const updated = await auth.request("/me", {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                name: document.getElementById("profileNameInput").value.trim(),
+                                phone: document.getElementById("profilePhoneInput").value.trim()
+                            })
+                        });
+                        ui.showBanner(banner, "Profile updated successfully.", "success");
+                        document.getElementById("rqHeaderUserName").textContent = `${updated.name} (${updated.role})`;
+                    } catch (error) {
+                        ui.showBanner(banner, error.message, "error");
+                    } finally {
+                        btn.disabled = false;
+                    }
+                });
+
+                document.getElementById("changePasswordForm").addEventListener("submit", async event => {
+                    event.preventDefault();
+                    const pw = document.getElementById("settingsNewPassword").value;
+                    const confirm = document.getElementById("settingsConfirmPassword").value;
+                    if (pw !== confirm) {
+                        ui.showBanner(banner, "Passwords do not match.", "error");
+                        return;
+                    }
+                    const btn = document.getElementById("updatePasswordBtn");
+                    btn.disabled = true;
+                    try {
+                        await auth.request("/password-update", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ password: pw })
+                        });
+                        document.getElementById("changePasswordForm").reset();
+                        ui.showBanner(banner, "Password updated successfully.", "success");
+                    } catch (error) {
+                        ui.showBanner(banner, error.message, "error");
+                    } finally {
+                        btn.disabled = false;
+                    }
+                });
+
+                document.getElementById("requestDeletionBtn").addEventListener("click", async () => {
+                    if (!window.confirm("Record an account deletion request? Deleting your profile cascades deletion of owned emergency alerts and contacts.")) return;
+                    const btn = document.getElementById("requestDeletionBtn");
+                    btn.disabled = true;
+                    try {
+                        const res = await auth.request("/me/deletion-request", { method: "POST" });
+                        document.getElementById("deletionStatusText").textContent =
+                            `Deletion request recorded at ${ui.formatDate(res.deletion_requested_at)}.`;
+                        ui.showBanner(banner, res.message, "warning");
+                    } catch (error) {
+                        ui.showBanner(banner, error.message, "error");
+                        btn.disabled = false;
+                    }
+                });
+
+                document.getElementById("settingsLogoutBtn").addEventListener("click", async () => {
+                    try {
+                        await auth.logout();
+                    } finally {
+                        window.location.replace("login.html");
+                    }
+                });
+            }
+
+            init();
+        })();
+    </script>
+</body>
+</html>

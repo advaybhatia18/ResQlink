@@ -65,7 +65,7 @@ jobs:
           RESQLINK_API_URL: ${{ vars.RESQLINK_API_URL }}
         run: |
           mkdir _site
-          cp *.html *.css auth-session.js auth-pages.js emergency-api.js emergency-submit.js _site/
+          cp *.html *.css *.js _site/
           python - <<'PY'
           import ipaddress
           import json

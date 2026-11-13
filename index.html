@@ -3,234 +3,192 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#0a111c">
-    <meta name="description" content="ResQlink emergency reporting demo">
-    <title>ResQlink | Emergency Assistance</title>
-    <link rel="preconnect" href="https://unpkg.com">
-    <link rel="preconnect" href="https://tile.openstreetmap.org">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-    <link rel="stylesheet" href="emergency.css">
+    <meta name="theme-color" content="#070d17">
+    <meta name="description" content="ResQlink emergency-assistance platform, service classification, and responder simulation system.">
+    <title>ResQlink | Emergency Assistance Platform</title>
+    <link rel="stylesheet" href="theme.css">
+    <style>
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr);
+            gap: 24px;
+            align-items: center;
+            padding: 36px 0 28px;
+        }
+        @media (max-width: 900px) {
+            .hero { grid-template-columns: 1fr; }
+        }
+        .hero-title {
+            margin: 0;
+            font-size: clamp(2rem, 4.4vw, 3.35rem);
+            line-height: 1.06;
+            letter-spacing: -0.02em;
+        }
+        .hero-title span {
+            color: var(--rq-red);
+        }
+        .hero-copy {
+            margin: 16px 0 24px;
+            color: var(--rq-muted);
+            font-size: 1.05rem;
+            max-width: 58ch;
+        }
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .hero-panel {
+            padding: 24px;
+            border-radius: 20px;
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            background: linear-gradient(155deg, rgba(239, 68, 68, 0.14), rgba(16, 27, 45, 0.92));
+            box-shadow: var(--rq-shadow);
+        }
+        .step-num {
+            display: inline-grid;
+            place-items: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: var(--rq-cyan-soft);
+            color: var(--rq-cyan);
+            font-weight: 800;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+        .section-block {
+            margin-top: 38px;
+        }
+        .section-head {
+            margin-bottom: 16px;
+        }
+        .section-head h2 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+    </style>
 </head>
-<body>
-    <a class="skip-link" href="#main-content">Skip to emergency form</a>
+<body class="rq-body">
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <header id="rqHeader" class="rq-header"></header>
 
-    <header class="topbar">
-        <a class="brand" href="index.html" aria-label="ResQlink home">
-            <span class="brand-mark" aria-hidden="true">
-                <svg viewBox="0 0 32 32" focusable="false">
-                    <path d="M16 3.5 27 9.8v12.4l-11 6.3-11-6.3V9.8l11-6.3Z"></path>
-                    <path d="M16 9v14M9 16h14"></path>
-                </svg>
-            </span>
-            <span class="brand-copy">
-                <span class="brand-name">ResQlink</span>
-                <span class="brand-caption">EMERGENCY ASSISTANCE</span>
-            </span>
-        </a>
+    <main id="main-content" class="rq-container">
+        <div class="rq-banner warning" role="note">
+            <strong>Safety &amp; Prototype Notice:</strong> ResQlink is an emergency-assistance and responder-simulation platform.
+            It does <strong>not</strong> contact public police, fire, or ambulance services. In a real emergency, call your local emergency number immediately.
+        </div>
 
-        <details class="account-menu" id="accountMenu">
-            <summary>
-                <span class="account-avatar" id="accountAvatar" aria-hidden="true">—</span>
-                <span class="account-summary">
-                    <span class="account-name" id="headerName">Checking session…</span>
-                    <span class="account-role" id="headerRole">ACCOUNT</span>
-                </span>
-                <svg class="chevron" viewBox="0 0 20 20" aria-hidden="true">
-                    <path d="m5 7 5 5 5-5"></path>
-                </svg>
-            </summary>
-            <div class="account-popover">
-                <p class="popover-eyebrow">SIGNED-IN ACCOUNT</p>
-                <strong id="profileName">Checking session…</strong>
-                <span id="profileEmail">Verifying with ResQlink</span>
-                <span class="role-pill" id="profileRole">—</span>
-                <a class="popover-link" id="responderLink" href="dashboard.html" hidden>
-                    Open responder dashboard
-                    <span aria-hidden="true">↗</span>
-                </a>
-                <button class="logout-button" id="logoutButton" type="button">Sign out</button>
-            </div>
-        </details>
-    </header>
-
-    <main id="main-content" class="page-shell">
-        <section class="intro" aria-labelledby="page-title">
-            <div class="eyebrow"><span class="eyebrow-line"></span> RESQLINK SOS</div>
-            <h1 id="page-title">Emergency<br class="mobile-break"> assistance</h1>
-            <p class="intro-copy">
-                Share an emergency report with your authorized ResQlink responders.
-                Choose a severity, then send your alert.
-            </p>
-        </section>
-
-        <section class="emergency-layout" aria-label="Emergency report">
-            <div class="primary-column">
-                <section class="sos-panel panel" aria-labelledby="sos-heading">
-                    <div class="panel-topline">
-                        <div>
-                            <p class="section-kicker">QUICK ACTION</p>
-                            <h2 id="sos-heading">Send an SOS alert</h2>
-                        </div>
-                        <span class="secure-label">
-                            <svg viewBox="0 0 16 16" aria-hidden="true">
-                                <path d="M4.5 7V5a3.5 3.5 0 0 1 7 0v2m-8 0h9v7h-9z"></path>
-                            </svg>
-                            PRIVATE
-                        </span>
-                    </div>
-
-                    <p class="sos-hint" id="sos-hint">
-                        Press once to request GPS and submit. No extra confirmation step.
-                    </p>
-
-                    <div class="sos-action">
-                        <span class="sos-orbit orbit-outer" aria-hidden="true"></span>
-                        <span class="sos-orbit orbit-inner" aria-hidden="true"></span>
-                        <button class="sos-button" id="sosButton" type="button"
-                            aria-describedby="sos-hint statusMessage">
-                            <span class="sos-button-label">SOS</span>
-                            <span class="sos-button-subtitle">SEND ALERT</span>
-                        </button>
-                    </div>
-                    <p class="button-footnote" id="sos-hint">
-                        Your location is included only when your device provides it.
-                    </p>
-
-                    <div class="severity-control">
-                        <label for="severity">Emergency severity</label>
-                        <select id="severity" name="severity">
-                            <option value="1">1 · Low</option>
-                            <option value="2">2 · Moderate</option>
-                            <option value="3">3 · High</option>
-                            <option value="4">4 · Very high</option>
-                            <option value="5" selected>5 · Critical</option>
-                        </select>
-                        <p class="severity-description" id="severityDescription">
-                            Immediate danger or urgent threat to life.
-                        </p>
-                    </div>
-                </section>
-
-                <section class="progress-panel panel" aria-labelledby="progress-heading">
-                    <div class="progress-heading-row">
-                        <div>
-                            <p class="section-kicker">SUBMISSION STATUS</p>
-                            <h2 id="progress-heading">Alert progress</h2>
-                        </div>
-                        <span class="progress-state" id="progressState">READY</span>
-                    </div>
-                    <div class="progress-track" aria-hidden="true">
-                        <span class="progress-fill" id="progressFill"></span>
-                    </div>
-                    <p class="status-message" id="statusMessage" role="status" aria-live="polite">
-                        Ready when you are. Your alert will be sent to the ResQlink demo API.
-                    </p>
-                    <div class="recovery-actions" id="locationActions" hidden>
-                        <button class="secondary-button" type="button" id="retryAuthButton" hidden>
-                            Check session again
-                        </button>
-                        <button class="secondary-button" type="button" id="retryLocationButton">
-                            Try GPS again
-                        </button>
-                        <button class="secondary-button" type="button"
-                            id="useApproximateLocationButton" hidden>
-                            Use approximate location
-                        </button>
-                        <button class="text-button" type="button"
-                            id="submitWithoutLocationButton">
-                            Submit without location
-                        </button>
-                        <button class="discard-button" type="button"
-                            id="discardPendingButton" hidden>
-                            Clear unresolved retry (may create a duplicate)
-                        </button>
-                    </div>
-                    <a class="sign-in-link" id="signInLink" href="login.html" hidden>
-                        Sign in to submit or retry this alert
-                    </a>
-                    <div class="success-summary" id="successPanel" hidden>
-                        <div class="success-icon" aria-hidden="true">✓</div>
-                        <div>
-                            <span class="success-label">RECORDED IN RESQLINK</span>
-                            <strong id="successAlertId">Alert #—</strong>
-                            <time id="successTimestamp"></time>
-                        </div>
-                        <button class="new-alert-button" id="newAlertButton" type="button" hidden>
-                            Start another alert
-                        </button>
-                    </div>
-                </section>
+        <section class="hero" aria-labelledby="landingHeading">
+            <div>
+                <p class="rq-kicker">RAPID CLASSIFICATION · LOCATION · COMMAND</p>
+                <h1 id="landingHeading" class="hero-title">
+                    Coordinated emergency <span>reporting</span> built for clarity under pressure.
+                </h1>
+                <p class="hero-copy">
+                    Classify incidents across 5 severity levels powered by ResQlink’s native C priority engine,
+                    review tailored Police, Fire &amp; Rescue, and Ambulance recommendations, share verified GPS
+                    location, manage emergency contacts, and coordinate responses through the Admin Command Center.
+                </p>
+                <div class="hero-actions" id="landingCtaGroup">
+                    <a class="rq-btn rq-btn-danger" href="sos.html">Open SOS Emergency Console</a>
+                    <a class="rq-btn rq-btn-primary" href="login.html" id="landingSignInBtn">Sign in</a>
+                    <a class="rq-btn" href="register.html" id="landingRegisterBtn">Create account</a>
+                    <a class="rq-btn" href="user-dashboard.html" id="landingDashboardBtn" hidden>Go to My Dashboard</a>
+                </div>
             </div>
 
-            <aside class="details-column" aria-label="Location and privacy details">
-                <section class="location-panel panel" aria-labelledby="location-heading">
-                    <div class="panel-topline location-title-row">
-                        <div>
-                            <p class="section-kicker">YOUR LOCATION</p>
-                            <h2 id="location-heading">GPS position</h2>
-                        </div>
-                        <span class="gps-indicator" id="gpsIndicator" aria-hidden="true"></span>
-                    </div>
-                    <p class="location-status" id="locationStatus" aria-live="polite">
-                        Not requested
-                    </p>
-                    <div class="coordinate-grid">
-                        <div class="coordinate-cell">
-                            <span>LATITUDE</span>
-                            <strong id="latitude">—</strong>
-                        </div>
-                        <div class="coordinate-cell">
-                            <span>LONGITUDE</span>
-                            <strong id="longitude">—</strong>
-                        </div>
-                    </div>
-                    <div class="accuracy-wrap" id="accuracyWrap" hidden>
-                        <div class="accuracy-heading">
-                            <span>ESTIMATED ACCURACY</span>
-                            <strong id="locationAccuracy">—</strong>
-                        </div>
-                        <div class="accuracy-meter" aria-hidden="true">
-                            <span id="accuracyMeterFill"></span>
-                        </div>
-                    </div>
-                    <div class="map-frame">
-                        <div id="locationMap" role="img"
-                            aria-label="Map preview. No user location has been requested yet."></div>
-                        <div class="map-overlay" id="mapOverlay">
-                            <span class="map-overlay-icon" aria-hidden="true">⌖</span>
-                            <span id="mapMessage">Map preview appears after GPS is available</span>
-                        </div>
-                    </div>
-                    <p class="map-attribution">
-                        Map tiles © <a href="https://www.openstreetmap.org/copyright"
-                            target="_blank" rel="noreferrer">OpenStreetMap</a>
-                    </p>
-                </section>
-
-                <section class="privacy-card" aria-label="Privacy notice">
-                    <span class="privacy-icon" aria-hidden="true">
-                        <svg viewBox="0 0 20 20">
-                            <path d="M10 2.5 16 5v4.7c0 3.7-2.5 6.3-6 7.8-3.5-1.5-6-4.1-6-7.8V5l6-2.5Z"></path>
-                            <path d="m7.4 10 1.7 1.7 3.7-3.8"></path>
-                        </svg>
-                    </span>
-                    <p><strong>Location privacy</strong>Your GPS coordinates go to ResQlink with this alert. OpenStreetMap receives map-tile requests for the previewed area.</p>
-                </section>
+            <aside class="hero-panel" aria-label="Platform capabilities summary">
+                <p class="rq-kicker">LIVE PLATFORM MODULES</p>
+                <h2 style="margin: 0 0 12px; font-size: 1.25rem;">End-to-end emergency workflow</h2>
+                <ul style="margin: 0; padding-left: 18px; color: #dbeafe; display: grid; gap: 8px; font-size: 14px;">
+                    <li><strong>Fast SOS Reporting:</strong> Idempotent submission with GPS accuracy checks and no-GPS fallback.</li>
+                    <li><strong>Service Recommendations:</strong> Category + severity rules for Police, Fire &amp; Rescue, and Medical.</li>
+                    <li><strong>Emergency Contacts:</strong> Primary contact management, <code>tel:</code> calls, and consent-audited fallback alerts.</li>
+                    <li><strong>Admin Command Center:</strong> Leaflet cluster map, status lifecycle, notes, and audit logs.</li>
+                    <li><strong>Isolated Simulator:</strong> 14 synthetic failure &amp; incident scenarios completely separated from live alerts.</li>
+                </ul>
             </aside>
         </section>
 
-        <footer class="demo-footer">
-            <span class="demo-badge"><span aria-hidden="true">!</span> DEMO / PROTOTYPE</span>
-            <p>This system does not contact real emergency services. For a real emergency, contact your local emergency number directly.</p>
-        </footer>
+        <section class="section-block" aria-labelledby="howItWorksHeading">
+            <div class="section-head">
+                <p class="rq-kicker">HOW IT WORKS</p>
+                <h2 id="howItWorksHeading">Four steps from report to resolution</h2>
+            </div>
+            <div class="rq-grid-4">
+                <article class="rq-card">
+                    <span class="step-num">1</span>
+                    <h3 class="rq-card-title">Authenticate</h3>
+                    <p class="rq-muted" style="margin: 0; font-size: 13.5px;">Sign in via Supabase Auth. Profiles and row-level ownership keep personal alerts and contacts private.</p>
+                </article>
+                <article class="rq-card">
+                    <span class="step-num">2</span>
+                    <h3 class="rq-card-title">Classify &amp; Select</h3>
+                    <p class="rq-muted" style="margin: 0; font-size: 13.5px;">Pick the incident category and severity (1–5). The C engine computes priority while rules recommend services.</p>
+                </article>
+                <article class="rq-card">
+                    <span class="step-num">3</span>
+                    <h3 class="rq-card-title">Send with GPS</h3>
+                    <p class="rq-muted" style="margin: 0; font-size: 13.5px;">Attach device GPS with accuracy verification or submit safely without coordinates if GPS is blocked.</p>
+                </article>
+                <article class="rq-card">
+                    <span class="step-num">4</span>
+                    <h3 class="rq-card-title">Track &amp; Coordinate</h3>
+                    <p class="rq-muted" style="margin: 0; font-size: 13.5px;">Track status history in your Emergency History while verified admins manage incidents in the Command Center.</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="section-block" aria-labelledby="quickLinksHeading">
+            <div class="section-head">
+                <p class="rq-kicker">ACCESS PORTALS</p>
+                <h2 id="quickLinksHeading">Explore ResQlink pages</h2>
+            </div>
+            <div class="rq-grid-3">
+                <article class="rq-card">
+                    <h3 class="rq-card-title">Member Portal</h3>
+                    <p class="rq-muted" style="font-size: 13.5px;">Manage your profile, view recent alerts, update emergency contacts, or reset your password.</p>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <a class="rq-btn rq-btn-sm" href="user-dashboard.html">User Dashboard</a>
+                        <a class="rq-btn rq-btn-sm" href="contacts.html">Contacts</a>
+                        <a class="rq-btn rq-btn-sm" href="history.html">History</a>
+                    </div>
+                </article>
+                <article class="rq-card">
+                    <h3 class="rq-card-title">SOS Console</h3>
+                    <p class="rq-muted" style="font-size: 13.5px;">Rapid one-tap SOS reporting with service cards, Leaflet map preview, and idempotent retry protection.</p>
+                    <a class="rq-btn rq-btn-sm rq-btn-danger" href="sos.html">Open SOS Console</a>
+                </article>
+                <article class="rq-card">
+                    <h3 class="rq-card-title">Responder &amp; Testing</h3>
+                    <p class="rq-muted" style="font-size: 13.5px;">Server-verified ADMIN access to the Command Center and isolated Emergency Simulator.</p>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <a class="rq-btn rq-btn-sm" href="admin-login.html">Admin Access</a>
+                        <a class="rq-btn rq-btn-sm" href="password-reset.html">Password Recovery</a>
+                    </div>
+                </article>
+            </div>
+        </section>
     </main>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <footer class="rq-footer">
+        ResQlink Emergency Assistance &amp; Simulation Platform · Not a replacement for local emergency services.
+    </footer>
+
     <script src="api-config.js"></script>
     <script src="auth-session.js"></script>
-    <script src="emergency-api.js"></script>
-    <script src="emergency-submit.js"></script>
+    <script src="ui-shell.js"></script>
+    <script>
+        "use strict";
+        (async () => {
+            const user = await window.ResqlinkUI.initNav("index");
+            if (user) {
+                document.getElementById("landingSignInBtn").hidden = true;
+                document.getElementById("landingRegisterBtn").hidden = true;
+                document.getElementById("landingDashboardBtn").hidden = false;
+            }
+        })();
+    </script>
 </body>
 </html>

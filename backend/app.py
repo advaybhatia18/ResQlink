@@ -13,16 +13,42 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from supabase_auth.errors import AuthApiError
 from starlette.responses import JSONResponse
 
+from classification import (
+    classify_emergency,
+    get_classification_config,
+    validate_category,
+    validate_services,
+)
+from contacts import (
+    create_contact,
+    delete_contact,
+    list_contacts,
+    list_notification_logs,
+    record_notification_attempt,
+    update_contact,
+)
 from emergency_engine import process_emergency
 from location import MAX_LOCATION_ACCURACY_METERS, validate_location
+from simulator import (
+    clear_simulation_runs,
+    list_scenarios,
+    list_simulation_runs,
+    run_simulation,
+    transition_simulation_run,
+)
 from storage import (
+    get_admin_audit_logs,
+    get_alert_detail,
     get_alerts,
     get_auth_client,
     get_user_profile,
+    request_account_deletion,
     resolve_alert,
     revoke_supabase_session,
     save_alert,
+    update_alert_status,
     update_supabase_password,
+    update_user_profile,
 )
 from request_controls import RequestControlsMiddleware
 
@@ -61,7 +87,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
 )
 
@@ -70,6 +96,9 @@ class EmergencyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     severity: int = Field(strict=True, ge=1, le=5)
+    category: str | None = Field(default=None, max_length=40)
+    requested_services: list[str] | None = Field(default=None, max_length=5)
+    notes: str | None = Field(default=None, max_length=1000)
     latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
     longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
     location_accuracy_m: float | None = Field(
@@ -135,6 +164,79 @@ class PasswordUpdateRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class ClassificationPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category: str = Field(default="PERSONAL_SAFETY", max_length=40)
+    severity: int = Field(strict=True, ge=1, le=5)
+    requested_services: list[str] | None = Field(default=None, max_length=5)
+
+
+class ContactCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    phone: str = Field(min_length=5, max_length=32)
+    relationship: str = Field(min_length=1, max_length=60)
+    is_primary: bool = False
+
+
+class ContactUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    phone: str | None = Field(default=None, min_length=5, max_length=32)
+    relationship: str | None = Field(default=None, min_length=1, max_length=60)
+    is_primary: bool | None = None
+
+
+class ContactNotifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    channel: str = Field(min_length=2, max_length=24)
+    consent_confirmed: bool
+    emergency_id: int | None = Field(default=None, ge=1)
+    message_preview: str | None = Field(default=None, max_length=300)
+
+
+class EmergencyStatusUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ACTIVE", "ACKNOWLEDGED", "DISPATCHED", "RESOLVED"]
+    admin_notes: str | None = Field(default=None, max_length=2000)
+
+
+class ProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=2, max_length=100)
+    phone: str | None = Field(default=None, max_length=32)
+
+
+class SimulatorRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenario_id: str = Field(default="custom", max_length=64)
+    category: str = Field(default="MEDICAL", max_length=40)
+    severity: int = Field(default=3, strict=True, ge=1, le=5)
+    requested_services: list[str] | None = Field(default=None, max_length=5)
+    gps_mode: Literal["ACCURATE", "UNAVAILABLE", "INACCURATE", "CUSTOM"] = "ACCURATE"
+    latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
+    longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
+    accuracy_m: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    delay_ms: int = Field(default=0, ge=0, le=1500)
+    failure_mode: Literal[
+        "NONE",
+        "DUPLICATE_REQUEST",
+        "OFFLINE_NETWORK",
+        "BACKEND_FAILURE",
+        "DATABASE_FAILURE",
+        "UNAUTHORIZED_USER",
+        "UNAUTHORIZED_ADMIN",
+    ] = "NONE"
+    simulate_lifecycle: bool = False
+
+
 def get_authenticated_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security)
 ):
@@ -191,6 +293,9 @@ def get_authenticated_user(
         "email": user.email,
         "name": profile["name"],
         "role": role,
+        "phone": profile.get("phone"),
+        "created_at": profile.get("created_at"),
+        "deletion_requested_at": profile.get("deletion_requested_at"),
     }
 
 
@@ -218,6 +323,23 @@ def health_check():
     return {"status": "ok"}
 
 
+@app.get("/classification/config")
+def classification_config():
+    return get_classification_config()
+
+
+@app.post("/classification/recommend")
+def recommend_classification(request: ClassificationPreviewRequest):
+    try:
+        return classify_emergency(
+            request.category,
+            request.severity,
+            request.requested_services,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 @app.post("/emergency")
 def create_emergency(
     request: EmergencyRequest,
@@ -226,10 +348,17 @@ def create_emergency(
 ):
     try:
         normalized_location = validate_location(request.latitude, request.longitude)
+        normalized_category = validate_category(request.category)
+        validated_services = validate_services(request.requested_services)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
     result = process_emergency(request.severity)
+    classification = classify_emergency(
+        normalized_category,
+        request.severity,
+        validated_services,
+    )
     result["latitude"] = (
         normalized_location["latitude"] if normalized_location else None
     )
@@ -237,6 +366,12 @@ def create_emergency(
         normalized_location["longitude"] if normalized_location else None
     )
     result["location_accuracy_m"] = request.location_accuracy_m
+    if request.category is not None or request.requested_services is not None:
+        result["category"] = classification["category"]
+        result["recommended_services"] = classification["recommended_services"]
+        result["requested_services"] = classification["requested_services"]
+    if request.notes and request.notes.strip():
+        result["notes"] = request.notes.strip()
 
     alert_id, duplicate, status = save_alert(
         result,
@@ -257,42 +392,194 @@ def create_emergency(
                 "already_submitted" if duplicate else "submitted"
             ),
             "duplicate": duplicate,
+            "classification": {
+                "category": classification["category"],
+                "category_name": classification["category_name"],
+                "severity": result["severity"],
+                "label": result["label"],
+                "priority": result["priority"],
+                "recommended_services": classification["recommended_services"],
+                "requested_services": classification["requested_services"],
+            },
         }
     )
 
 
-@app.get("/emergencies", dependencies=[Depends(require_admin)])
-def list_emergencies(
-    severity: int | None = Query(default=None, ge=1, le=5),
-    status: Literal["ACTIVE", "RESOLVED"] | None = None,
-    search: str | None = Query(default=None, max_length=100),
-):
-    alerts = get_alerts()
+def _filter_alerts(
+    alerts: list[dict],
+    *,
+    severity: int | None = None,
+    status: str | None = None,
+    category: str | None = None,
+    service: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    search: str | None = None,
+) -> list[dict]:
     if severity is not None:
         alerts = [alert for alert in alerts if alert["severity"] == severity]
     if status is not None:
         alerts = [alert for alert in alerts if alert["status"] == status]
+    if category and category.strip():
+        target_cat = category.strip().upper()
+        alerts = [
+            alert for alert in alerts
+            if (alert.get("category") or "PERSONAL_SAFETY").upper() == target_cat
+        ]
+    if service and service.strip():
+        target_srv = service.strip().upper()
+        alerts = [
+            alert for alert in alerts
+            if target_srv in (alert.get("requested_services") or [])
+        ]
+    if date_from and date_from.strip():
+        start_prefix = date_from.strip()
+        alerts = [
+            alert for alert in alerts
+            if str(alert.get("created_at", ""))[:10] >= start_prefix[:10]
+        ]
+    if date_to and date_to.strip():
+        end_prefix = date_to.strip()
+        alerts = [
+            alert for alert in alerts
+            if str(alert.get("created_at", ""))[:10] <= end_prefix[:10]
+        ]
     if search and search.strip():
         term = search.strip().casefold()
         alerts = [
             alert for alert in alerts
             if term in " ".join(
-                str(alert[field])
-                for field in ("id", "label", "severity", "priority", "status", "created_at")
+                str(alert.get(field, ""))
+                for field in (
+                    "id",
+                    "label",
+                    "severity",
+                    "priority",
+                    "status",
+                    "category",
+                    "created_at",
+                    "reporter_ref",
+                    "notes",
+                )
             ).casefold()
         ]
-    return {"count": len(alerts), "emergencies": alerts}
+    return alerts
+
+
+@app.get("/emergencies", dependencies=[Depends(require_admin)])
+def list_emergencies(
+    severity: int | None = Query(default=None, ge=1, le=5),
+    status: Literal["ACTIVE", "ACKNOWLEDGED", "DISPATCHED", "RESOLVED"] | None = None,
+    category: str | None = Query(default=None, max_length=40),
+    service: str | None = Query(default=None, max_length=40),
+    date_from: str | None = Query(default=None, max_length=32),
+    date_to: str | None = Query(default=None, max_length=32),
+    search: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    alerts = _filter_alerts(
+        get_alerts(),
+        severity=severity,
+        status=status,
+        category=category,
+        service=service,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+    )
+    paged = alerts[offset : offset + limit]
+    return {"count": len(paged), "emergencies": paged}
 
 
 @app.get("/emergencies/me")
 def list_my_emergencies(
-    current_user: dict = Depends(get_authenticated_user)
+    status: Literal["ACTIVE", "ACKNOWLEDGED", "DISPATCHED", "RESOLVED"] | None = None,
+    category: str | None = Query(default=None, max_length=40),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    current_user: dict = Depends(get_authenticated_user),
 ):
-    alerts = get_alerts(current_user["id"])
+    alerts = _filter_alerts(
+        get_alerts(current_user["id"]),
+        status=status,
+        category=category,
+    )
+    paged = alerts[offset : offset + limit]
     return {
-        "count": len(alerts),
-        "emergencies": alerts
+        "count": len(paged),
+        "emergencies": paged,
     }
+
+
+@app.get("/emergencies/{alert_id}")
+def get_emergency_detail(
+    alert_id: int,
+    current_user: dict = Depends(get_authenticated_user),
+):
+    owner_filter = None if current_user["role"] == "ADMIN" else current_user["id"]
+    return get_alert_detail(alert_id, user_id=owner_filter)
+
+
+@app.patch("/emergencies/{alert_id}/status")
+def update_emergency_status(
+    alert_id: int,
+    request: EmergencyStatusUpdateRequest,
+    current_user: dict = Depends(require_admin),
+):
+    updated = update_alert_status(
+        alert_id,
+        request.status,
+        current_user["id"],
+        admin_notes=request.admin_notes,
+    )
+    if not updated:
+        raise HTTPException(
+            status_code=404,
+            detail="Emergency alert not found",
+        )
+    return {
+        "message": f"Emergency status updated to {request.status}",
+        **updated,
+    }
+
+
+@app.get("/admin/overview", dependencies=[Depends(require_admin)])
+def admin_overview():
+    alerts = get_alerts()
+    by_severity = {str(level): 0 for level in range(1, 6)}
+    by_category: dict[str, int] = {}
+    by_service = {"POLICE": 0, "FIRE_RESCUE": 0, "AMBULANCE_MEDICAL": 0}
+    status_counts = {"ACTIVE": 0, "ACKNOWLEDGED": 0, "DISPATCHED": 0, "RESOLVED": 0}
+
+    for alert in alerts:
+        sev_key = str(alert["severity"])
+        by_severity[sev_key] = by_severity.get(sev_key, 0) + 1
+        cat_key = alert.get("category") or "PERSONAL_SAFETY"
+        by_category[cat_key] = by_category.get(cat_key, 0) + 1
+        st = alert.get("status", "ACTIVE")
+        status_counts[st] = status_counts.get(st, 0) + 1
+        for srv in (alert.get("requested_services") or []):
+            by_service[srv] = by_service.get(srv, 0) + 1
+
+    return {
+        "total_alerts": len(alerts),
+        "active_emergencies": status_counts["ACTIVE"] + status_counts["ACKNOWLEDGED"] + status_counts["DISPATCHED"],
+        "acknowledged_emergencies": status_counts["ACKNOWLEDGED"],
+        "dispatched_emergencies": status_counts["DISPATCHED"],
+        "resolved_emergencies": status_counts["RESOLVED"],
+        "critical_emergencies": by_severity["5"],
+        "by_severity": by_severity,
+        "by_category": by_category,
+        "by_service": by_service,
+        "recent_activity": alerts[:10],
+    }
+
+
+@app.get("/admin/audit-logs", dependencies=[Depends(require_admin)])
+def admin_audit_logs(limit: int = Query(default=100, ge=1, le=250)):
+    logs = get_admin_audit_logs(limit=limit)
+    return {"count": len(logs), "logs": logs}
 
 
 @app.patch(
@@ -419,7 +706,43 @@ def get_my_account(current_user=Depends(get_authenticated_user)):
         "id": current_user["id"],
         "name": current_user["name"],
         "email": current_user["email"],
-        "role": current_user["role"]
+        "role": current_user["role"],
+        "phone": current_user.get("phone"),
+        "created_at": current_user.get("created_at"),
+        "deletion_requested_at": current_user.get("deletion_requested_at"),
+    }
+
+
+@app.patch("/me")
+def update_my_account(
+    request: ProfileUpdateRequest,
+    current_user=Depends(get_authenticated_user),
+):
+    updated = update_user_profile(
+        current_user["id"],
+        name=request.name,
+        phone=request.phone,
+    )
+    return {
+        "message": "Profile updated successfully",
+        "id": updated["id"],
+        "name": updated["name"],
+        "email": current_user["email"],
+        "role": updated["role"],
+        "phone": updated.get("phone"),
+    }
+
+
+@app.post("/me/deletion-request", status_code=202)
+def request_my_account_deletion(current_user=Depends(get_authenticated_user)):
+    updated = request_account_deletion(current_user["id"])
+    return {
+        "message": (
+            "Account deletion request recorded. An administrator or Supabase "
+            "project operator must finalize Auth user removal according to the "
+            "data retention policy."
+        ),
+        "deletion_requested_at": updated.get("deletion_requested_at"),
     }
 
 
@@ -508,3 +831,132 @@ def logout(
         )
     revoke_supabase_session(credentials.credentials)
     return {"message": "Signed out"}
+
+
+@app.get("/contacts")
+def get_my_contacts(current_user: dict = Depends(get_authenticated_user)):
+    contacts = list_contacts(current_user["id"])
+    return {"count": len(contacts), "contacts": contacts}
+
+
+@app.post("/contacts", status_code=201)
+def add_my_contact(
+    request: ContactCreateRequest,
+    current_user: dict = Depends(get_authenticated_user),
+):
+    contact = create_contact(
+        current_user["id"],
+        name=request.name,
+        phone=request.phone,
+        relationship=request.relationship,
+        is_primary=request.is_primary,
+    )
+    return {"message": "Emergency contact saved", "contact": contact}
+
+
+@app.patch("/contacts/{contact_id}")
+def edit_my_contact(
+    contact_id: int,
+    request: ContactUpdateRequest,
+    current_user: dict = Depends(get_authenticated_user),
+):
+    contact = update_contact(
+        current_user["id"],
+        contact_id,
+        name=request.name,
+        phone=request.phone,
+        relationship=request.relationship,
+        is_primary=request.is_primary,
+    )
+    return {"message": "Emergency contact updated", "contact": contact}
+
+
+@app.delete("/contacts/{contact_id}")
+def remove_my_contact(
+    contact_id: int,
+    current_user: dict = Depends(get_authenticated_user),
+):
+    deleted = delete_contact(current_user["id"], contact_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Emergency contact not found")
+    return {"message": "Emergency contact deleted", "contact_id": contact_id}
+
+
+@app.post("/contacts/{contact_id}/notify")
+def notify_my_contact(
+    contact_id: int,
+    request: ContactNotifyRequest,
+    current_user: dict = Depends(get_authenticated_user),
+):
+    return record_notification_attempt(
+        current_user["id"],
+        contact_id,
+        channel=request.channel,
+        consent_confirmed=request.consent_confirmed,
+        emergency_id=request.emergency_id,
+        message_preview=request.message_preview,
+    )
+
+
+@app.get("/contacts/notifications")
+def get_my_contact_notifications(
+    limit: int = Query(default=25, ge=1, le=100),
+    current_user: dict = Depends(get_authenticated_user),
+):
+    logs = list_notification_logs(current_user["id"], limit=limit)
+    return {"count": len(logs), "notifications": logs}
+
+
+@app.get("/simulator/scenarios", dependencies=[Depends(require_admin)])
+def simulator_scenarios():
+    scenarios = list_scenarios()
+    return {"count": len(scenarios), "scenarios": scenarios}
+
+
+@app.get("/simulator/runs", dependencies=[Depends(require_admin)])
+def simulator_runs(limit: int = Query(default=50, ge=1, le=200)):
+    runs = list_simulation_runs(limit=limit)
+    return {"count": len(runs), "runs": runs}
+
+
+@app.post("/simulator/run", status_code=201)
+def simulator_run(
+    request: SimulatorRunRequest,
+    current_user: dict = Depends(require_admin),
+):
+    return run_simulation(
+        admin_id=current_user["id"],
+        scenario_id=request.scenario_id,
+        category=request.category,
+        severity=request.severity,
+        requested_services=request.requested_services,
+        gps_mode=request.gps_mode,
+        latitude=request.latitude,
+        longitude=request.longitude,
+        accuracy_m=request.accuracy_m,
+        delay_ms=request.delay_ms,
+        failure_mode=request.failure_mode,
+        simulate_lifecycle=request.simulate_lifecycle,
+    )
+
+
+@app.patch("/simulator/runs/{run_id}/status", dependencies=[Depends(require_admin)])
+def simulator_run_transition(
+    run_id: int,
+    status: Literal[
+        "SIMULATED_ACKNOWLEDGED",
+        "SIMULATED_DISPATCHED",
+        "SIMULATED_RESOLVED",
+    ] = Query(...),
+):
+    updated = transition_simulation_run(run_id, status)
+    return {"message": f"Simulated run transitioned to {status}", "run": updated}
+
+
+@app.delete("/simulator/runs", dependencies=[Depends(require_admin)])
+def simulator_reset():
+    removed = clear_simulation_runs()
+    return {
+        "message": "All simulated emergency runs cleared. Production emergency records were untouched.",
+        "deleted_count": removed,
+    }

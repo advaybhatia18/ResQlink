@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#070d17">
+    <title>ResQlink | Member Dashboard</title>
+    <link rel="stylesheet" href="theme.css">
+</head>
+<body class="rq-body">
+    <a class="skip-link" href="#main-content">Skip to dashboard</a>
+    <header id="rqHeader" class="rq-header"></header>
+
+    <main id="main-content" class="rq-container">
+        <div class="rq-page-head">
+            <div>
+                <p class="rq-kicker">MEMBER OVERVIEW</p>
+                <h1 class="rq-title" id="welcomeHeading">Your ResQlink Dashboard</h1>
+                <p class="rq-subtitle">Access rapid SOS reporting, review recent alerts, manage trusted contacts, and configure account settings.</p>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <a class="rq-btn rq-btn-danger" href="sos.html">Send SOS Alert</a>
+                <a class="rq-btn" href="settings.html">Account Settings</a>
+            </div>
+        </div>
+
+        <div id="userDashBanner" class="rq-banner" hidden role="status" aria-live="polite"></div>
+
+        <section class="rq-grid-3" style="margin-bottom: 20px;">
+            <article class="rq-card">
+                <p class="rq-kicker">SIGNED-IN PROFILE</p>
+                <h2 class="rq-card-title" id="dashUserName">Loading…</h2>
+                <p class="rq-muted" id="dashUserEmail" style="margin: 4px 0 10px; font-size: 13.5px;">—</p>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <span class="rq-pill" id="dashUserRole">—</span>
+                    <a href="settings.html" class="rq-btn rq-btn-sm">Edit Profile</a>
+                    <button type="button" id="dashLogoutBtn" class="rq-btn rq-btn-sm">Sign out</button>
+                </div>
+            </article>
+
+            <article class="rq-card">
+                <p class="rq-kicker">EMERGENCY CONTACTS</p>
+                <h2 class="rq-card-title" id="dashContactsCount">—</h2>
+                <p class="rq-muted" id="dashPrimaryContact" style="margin: 4px 0 12px; font-size: 13.5px;">Checking primary contact…</p>
+                <a class="rq-btn rq-btn-sm rq-btn-primary" href="contacts.html">Manage Contacts</a>
+            </article>
+
+            <article class="rq-card" style="border-color: rgba(239, 68, 68, 0.38);">
+                <p class="rq-kicker">RAPID RESPONSE</p>
+                <h2 class="rq-card-title">SOS Console</h2>
+                <p class="rq-muted" style="margin: 4px 0 12px; font-size: 13.5px;">Submit a categorized emergency report with service selection and GPS coordinates.</p>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <a class="rq-btn rq-btn-sm rq-btn-danger" href="sos.html">Open SOS</a>
+                    <a class="rq-btn rq-btn-sm" id="dashAdminBtn" href="dashboard.html" hidden>Admin Command Center</a>
+                </div>
+            </article>
+        </section>
+
+        <section class="rq-card" aria-labelledby="recentAlertsHeading">
+            <div class="rq-page-head" style="margin-bottom: 14px;">
+                <div>
+                    <p class="rq-kicker">PERSONAL LOG</p>
+                    <h2 id="recentAlertsHeading" style="margin:0; font-size:1.25rem;">Recent personal alerts</h2>
+                </div>
+                <a class="rq-btn rq-btn-sm" href="history.html">View Full History</a>
+            </div>
+            <div id="recentAlertsList" aria-live="polite">
+                <p class="rq-muted"><span class="rq-spinner" aria-hidden="true"></span> Loading your emergency alerts…</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="rq-footer">
+        ResQlink Member Portal · Demo platform; does not contact public emergency services.
+    </footer>
+
+    <script src="api-config.js"></script>
+    <script src="auth-session.js"></script>
+    <script src="ui-shell.js"></script>
+    <script>
+        "use strict";
+        (() => {
+            const auth = window.ResqlinkAuth;
+            const ui = window.ResqlinkUI;
+            const el = ui.el;
+
+            async function init() {
+                const banner = document.getElementById("userDashBanner");
+                let user;
+                try {
+                    user = await ui.initNav("user-dashboard", { requireAuth: true, nextPage: "user-dashboard.html" });
+                } catch (error) {
+                    ui.showBanner(banner, error.message, "error");
+                    return;
+                }
+                if (!user) return;
+
+                document.getElementById("welcomeHeading").textContent = `Welcome, ${user.name}`;
+                document.getElementById("dashUserName").textContent = user.name;
+                document.getElementById("dashUserEmail").textContent = user.email || "Verified member";
+                document.getElementById("dashUserRole").textContent = user.role;
+                if (user.role === "ADMIN") {
+                    document.getElementById("dashAdminBtn").hidden = false;
+                }
+
+                document.getElementById("dashLogoutBtn").addEventListener("click", async () => {
+                    try {
+                        await auth.logout();
+                    } finally {
+                        window.location.replace("login.html");
+                    }
+                });
+
+                const [alertsRes, contactsRes] = await Promise.allSettled([
+                    auth.request("/emergencies/me?limit=5", { method: "GET" }),
+                    auth.request("/contacts", { method: "GET" }),
+                ]);
+
+                const alertsContainer = document.getElementById("recentAlertsList");
+                alertsContainer.replaceChildren();
+                if (alertsRes.status === "fulfilled") {
+                    const alerts = alertsRes.value.emergencies || [];
+                    if (alerts.length === 0) {
+                        alertsContainer.append(el("div", { className: "rq-empty", text: "You have not submitted any emergency alerts yet." }));
+                    } else {
+                        const list = el("div", { style: "display:grid; gap:10px;" });
+                        alerts.forEach(alert => {
+                            list.append(
+                                el("div", { className: "rq-card", style: "padding:14px; background:rgba(8,14,25,0.65);" },
+                                    el("div", { style: "display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;" },
+                                        el("strong", { text: `Alert #${alert.id} · ${ui.categoryLabel(alert.category)}` }),
+                                        el("div", { style: "display:flex; gap:6px;" },
+                                            el("span", { className: `rq-pill sev-${alert.severity}`, text: `Sev ${alert.severity}/5 · ${alert.label}` }),
+                                            el("span", { className: `rq-pill status-${alert.status}`, text: alert.status })
+                                        )
+                                    ),
+                                    el("p", { className: "rq-muted", style: "margin:6px 0 0; font-size:12.5px;", text: `Submitted ${ui.formatDate(alert.created_at)}` })
+                                )
+                            );
+                        });
+                        alertsContainer.append(list);
+                    }
+                } else {
+                    alertsContainer.append(el("div", { className: "rq-banner error", text: `Could not load alerts: ${alertsRes.reason.message}` }));
+                }
+
+                if (contactsRes.status === "fulfilled") {
+                    const contacts = contactsRes.value.contacts || [];
+                    document.getElementById("dashContactsCount").textContent = `${contacts.length} / 10 Saved`;
+                    const primary = contacts.find(c => c.is_primary) || contacts[0];
+                    document.getElementById("dashPrimaryContact").textContent = primary
+                        ? `Primary: ${primary.name} (${primary.relationship}) · ${primary.phone}`
+                        : "No emergency contacts configured yet.";
+                } else {
+                    document.getElementById("dashContactsCount").textContent = "Unavailable";
+                    document.getElementById("dashPrimaryContact").textContent = contactsRes.reason.message;
+                }
+            }
+
+            init();
+        })();
+    </script>
+</body>
+</html>

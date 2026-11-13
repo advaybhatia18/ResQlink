@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0a111c">
+    <meta name="description" content="ResQlink SOS emergency alert and classification console">
+    <title>ResQlink | SOS Emergency</title>
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="preconnect" href="https://tile.openstreetmap.org">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="emergency.css">
+    <style>
+        .sos-grid-controls {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 14px;
+        }
+        @media (max-width: 640px) {
+            .sos-grid-controls { grid-template-columns: 1fr; }
+        }
+        .service-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 14px;
+        }
+        @media (max-width: 820px) {
+            .service-cards-grid { grid-template-columns: 1fr; }
+        }
+        .service-card {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(145, 190, 225, 0.2);
+            background: rgba(10, 18, 32, 0.72);
+            transition: border-color 0.18s ease, background 0.18s ease;
+        }
+        .service-card.recommended {
+            border-color: rgba(255, 191, 105, 0.45);
+        }
+        .service-card.selected {
+            border-color: rgba(239, 68, 68, 0.7);
+            background: rgba(239, 68, 68, 0.12);
+        }
+        .service-card-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .service-card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            font-size: 0.95rem;
+        }
+        .service-card-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            font-size: 11px;
+        }
+        .service-card-reason,
+        .service-card-info {
+            margin: 0;
+            font-size: 12.5px;
+            color: var(--rq-muted);
+            line-height: 1.45;
+        }
+        .service-toggle-btn {
+            margin-top: auto;
+            width: 100%;
+            min-height: 36px;
+            border-radius: 9px;
+            border: 1px solid rgba(145, 190, 225, 0.28);
+            background: rgba(28, 45, 72, 0.6);
+            color: #eef6ff;
+            font-size: 12.5px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .service-card.selected .service-toggle-btn {
+            background: rgba(239, 68, 68, 0.28);
+            border-color: rgba(239, 68, 68, 0.65);
+        }
+        .guidance-box {
+            margin-top: 12px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(54, 230, 239, 0.25);
+            background: rgba(54, 230, 239, 0.08);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .contacts-mini-list {
+            display: grid;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .contact-mini-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(145, 190, 225, 0.16);
+            background: rgba(8, 14, 25, 0.65);
+        }
+        .contact-mini-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+    <a class="skip-link" href="#main-content">Skip to emergency form</a>
+    <header id="rqHeader" class="rq-header"></header>
+
+    <main id="main-content" class="page-shell">
+        <section class="intro" aria-labelledby="page-title">
+            <div class="eyebrow"><span class="eyebrow-line"></span> RESQLINK SOS</div>
+            <h1 id="page-title">Emergency<br class="mobile-break"> assistance</h1>
+            <p class="intro-copy">
+                Classify your emergency, review service recommendations, attach GPS when available,
+                and submit immediately to ResQlink.
+            </p>
+        </section>
+
+        <section class="emergency-layout" aria-label="Emergency report">
+            <div class="primary-column">
+                <section class="sos-panel panel" aria-labelledby="sos-heading">
+                    <div class="panel-topline">
+                        <div>
+                            <p class="section-kicker">QUICK ACTION</p>
+                            <h2 id="sos-heading">Send an SOS alert</h2>
+                        </div>
+                        <span class="secure-label">
+                            <svg viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M4.5 7V5a3.5 3.5 0 0 1 7 0v2m-8 0h9v7h-9z"></path>
+                            </svg>
+                            PRIVATE
+                        </span>
+                    </div>
+
+                    <p class="sos-hint" id="sos-hint">
+                        Press once to request GPS and submit. No extra confirmation step.
+                    </p>
+
+                    <div class="sos-action">
+                        <span class="sos-orbit orbit-outer" aria-hidden="true"></span>
+                        <span class="sos-orbit orbit-inner" aria-hidden="true"></span>
+                        <button class="sos-button" id="sosButton" type="button"
+                            aria-describedby="sos-hint statusMessage">
+                            <span class="sos-button-label">SOS</span>
+                            <span class="sos-button-subtitle">SEND ALERT</span>
+                        </button>
+                    </div>
+                    <p class="button-footnote">
+                        Your location is included only when your device provides it.
+                    </p>
+
+                    <div class="sos-grid-controls">
+                        <div class="severity-control">
+                            <label for="emergencyCategory">Emergency category</label>
+                            <select id="emergencyCategory" name="category">
+                                <option value="PERSONAL_SAFETY" selected>Personal Safety</option>
+                                <option value="MEDICAL">Medical Emergency</option>
+                                <option value="ROAD_ACCIDENT">Road Accident</option>
+                                <option value="FIRE">Fire &amp; Rescue</option>
+                                <option value="THEFT">Theft / Intrusion</option>
+                                <option value="NATURAL_DISASTER">Natural Disaster</option>
+                                <option value="OTHER">Other Urgent Situation</option>
+                            </select>
+                        </div>
+
+                        <div class="severity-control">
+                            <label for="severity">Emergency severity</label>
+                            <select id="severity" name="severity">
+                                <option value="1">1 · Low</option>
+                                <option value="2">2 · Moderate</option>
+                                <option value="3">3 · High</option>
+                                <option value="4">4 · Very high</option>
+                                <option value="5" selected>5 · Critical</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <p class="severity-description" id="severityDescription">
+                        Immediate danger or urgent threat to life.
+                    </p>
+
+                    <div class="severity-control" style="margin-top: 12px;">
+                        <label for="emergencyNotes">Situational note (optional)</label>
+                        <input id="emergencyNotes" class="rq-input" type="text" maxlength="400"
+                            placeholder="Brief landmark, floor, injury, or access detail">
+                    </div>
+
+                    <div class="guidance-box" id="safetyGuidanceBox">
+                        <strong>Safety guidance:</strong>
+                        <span id="safetyGuidanceText">Loading classification guidance…</span>
+                    </div>
+                </section>
+
+                <section class="panel" aria-labelledby="services-heading">
+                    <div class="panel-topline">
+                        <div>
+                            <p class="section-kicker">SERVICE CLASSIFICATION</p>
+                            <h2 id="services-heading">Recommended &amp; requested services</h2>
+                        </div>
+                        <span class="rq-pill" id="classificationSummaryPill">Priority —</span>
+                    </div>
+                    <p class="rq-muted" style="font-size: 13px; margin: 6px 0 0;" id="classificationLegend">
+                        Recommended services are determined by the backend classification engine from category + severity. Toggle cards below to customize your requested services.
+                    </p>
+                    <div class="service-cards-grid" id="serviceCardsGrid" aria-live="polite"></div>
+                    <p class="rq-muted" style="font-size: 12px; margin: 12px 0 0;" id="dispatchDisclaimer">
+                        ResQlink distinguishes recommended services from requested services. No real police, fire, or ambulance dispatch occurs without an authorized external integration.
+                    </p>
+                </section>
+
+                <section class="progress-panel panel" aria-labelledby="progress-heading">
+                    <div class="progress-heading-row">
+                        <div>
+                            <p class="section-kicker">SUBMISSION STATUS</p>
+                            <h2 id="progress-heading">Alert progress</h2>
+                        </div>
+                        <span class="progress-state" id="progressState">READY</span>
+                    </div>
+                    <div class="progress-track" aria-hidden="true">
+                        <span class="progress-fill" id="progressFill"></span>
+                    </div>
+                    <p class="status-message" id="statusMessage" role="status" aria-live="polite">
+                        Ready when you are. Your alert will be sent to the ResQlink API.
+                    </p>
+                    <div class="recovery-actions" id="locationActions" hidden>
+                        <button class="secondary-button" type="button" id="retryAuthButton" hidden>
+                            Check session again
+                        </button>
+                        <button class="secondary-button" type="button" id="retryLocationButton">
+                            Try GPS again
+                        </button>
+                        <button class="secondary-button" type="button"
+                            id="useApproximateLocationButton" hidden>
+                            Use approximate location
+                        </button>
+                        <button class="text-button" type="button"
+                            id="submitWithoutLocationButton">
+                            Submit without location
+                        </button>
+                        <button class="discard-button" type="button"
+                            id="discardPendingButton" hidden>
+                            Clear unresolved retry (may create a duplicate)
+                        </button>
+                    </div>
+                    <a class="sign-in-link" id="signInLink" href="login.html?next=sos.html" hidden>
+                        Sign in to submit or retry this alert
+                    </a>
+                    <div class="success-summary" id="successPanel" hidden>
+                        <div class="success-icon" aria-hidden="true">✓</div>
+                        <div>
+                            <span class="success-label">RECORDED IN RESQLINK</span>
+                            <strong id="successAlertId">Alert #—</strong>
+                            <time id="successTimestamp"></time>
+                            <div style="margin-top: 6px; font-size: 12px;">
+                                <a href="history.html">View in Emergency History →</a>
+                            </div>
+                        </div>
+                        <button class="new-alert-button" id="newAlertButton" type="button" hidden>
+                            Start another alert
+                        </button>
+                    </div>
+                </section>
+            </div>
+
+            <aside class="details-column" aria-label="Location and emergency contacts">
+                <section class="location-panel panel" aria-labelledby="location-heading">
+                    <div class="panel-topline location-title-row">
+                        <div>
+                            <p class="section-kicker">YOUR LOCATION</p>
+                            <h2 id="location-heading">GPS position</h2>
+                        </div>
+                        <span class="gps-indicator" id="gpsIndicator" aria-hidden="true"></span>
+                    </div>
+                    <p class="location-status" id="locationStatus" aria-live="polite">
+                        Not requested
+                    </p>
+                    <div class="coordinate-grid">
+                        <div class="coordinate-cell">
+                            <span>LATITUDE</span>
+                            <strong id="latitude">—</strong>
+                        </div>
+                        <div class="coordinate-cell">
+                            <span>LONGITUDE</span>
+                            <strong id="longitude">—</strong>
+                        </div>
+                    </div>
+                    <div class="accuracy-wrap" id="accuracyWrap" hidden>
+                        <div class="accuracy-heading">
+                            <span>ESTIMATED ACCURACY</span>
+                            <strong id="locationAccuracy">—</strong>
+                        </div>
+                        <div class="accuracy-meter" aria-hidden="true">
+                            <span id="accuracyMeterFill"></span>
+                        </div>
+                    </div>
+                    <div class="map-frame">
+                        <div id="locationMap" role="img"
+                            aria-label="Map preview. No user location has been requested yet."></div>
+                        <div class="map-overlay" id="mapOverlay">
+                            <span class="map-overlay-icon" aria-hidden="true">⌖</span>
+                            <span id="mapMessage">Map preview appears after GPS is available</span>
+                        </div>
+                    </div>
+                    <p class="map-attribution">
+                        Map tiles © <a href="https://www.openstreetmap.org/copyright"
+                            target="_blank" rel="noreferrer">OpenStreetMap</a>
+                    </p>
+                </section>
+
+                <section class="panel" aria-labelledby="sos-contacts-heading">
+                    <div class="panel-topline">
+                        <div>
+                            <p class="section-kicker">TRUSTED CONTACTS</p>
+                            <h2 id="sos-contacts-heading">Emergency contacts</h2>
+                        </div>
+                        <a href="contacts.html" class="rq-btn rq-btn-sm">Manage</a>
+                    </div>
+                    <p class="rq-muted" style="font-size: 12.5px; margin: 6px 0 0;" id="sosContactsStatus">
+                        Loading saved contacts…
+                    </p>
+                    <div class="contacts-mini-list" id="sosContactsList"></div>
+                </section>
+
+                <section class="privacy-card" aria-label="Privacy notice">
+                    <span class="privacy-icon" aria-hidden="true">
+                        <svg viewBox="0 0 20 20">
+                            <path d="M10 2.5 16 5v4.7c0 3.7-2.5 6.3-6 7.8-3.5-1.5-6-4.1-6-7.8V5l6-2.5Z"></path>
+                            <path d="m7.4 10 1.7 1.7 3.7-3.8"></path>
+                        </svg>
+                    </span>
+                    <p><strong>Location privacy</strong>Your GPS coordinates go to ResQlink with this alert. OpenStreetMap receives map-tile requests for the previewed area.</p>
+                </section>
+            </aside>
+        </section>
+
+        <footer class="demo-footer">
+            <span class="demo-badge"><span aria-hidden="true">!</span> DEMO / PROTOTYPE</span>
+            <p>This system does not contact real emergency services. For a real emergency, contact your local emergency number directly.</p>
+        </footer>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="api-config.js"></script>
+    <script src="auth-session.js"></script>
+    <script src="ui-shell.js"></script>
+    <script src="emergency-api.js"></script>
+    <script src="emergency-submit.js"></script>
+</body>
+</html>
