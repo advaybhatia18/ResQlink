@@ -9,8 +9,13 @@ ResQlink uses a split static-frontend + API-backend deployment:
 
 [`render.yaml`](./render.yaml) defines the Render Python service:
 - **Python runtime:** `3.12.8`
-- **Build command:** `pip install -r backend/requirements.txt`
-- **Start command:** Ensure Render's configured Start Command invokes Uvicorn against `backend/app.py` (for example `uvicorn app:app --host 0.0.0.0 --port $PORT` when Root Directory is `backend`, or `uvicorn app:app --app-dir backend --host 0.0.0.0 --port $PORT` from repository root).
+- **Build & Start Commands (must match your Render Root Directory):**
+  - If Render **Root Directory** is `backend`:
+    - **Build command:** `pip install -r requirements.txt`
+    - **Start command:** `uvicorn app:app --host 0.0.0.0 --port $PORT`
+  - If Render **Root Directory** is blank / repository root (as in `render.yaml`):
+    - **Build command:** `pip install -r backend/requirements.txt`
+    - **Start command:** `cd backend && uvicorn app:app --host 0.0.0.0 --port $PORT`
 - **Native C Engine:** On Linux, `backend/emergency_engine.py` automatically compiles `core/emergency.c` -> `core/libemergency.so` on first load if missing (with Python fallback if compilation is unavailable in the container).
 
 ### Required Render Environment Variables

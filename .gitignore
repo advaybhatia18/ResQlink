@@ -3,20 +3,31 @@
 .env.*
 !.env.example
 
-# Python
+# Python & Test Caches
 .venv/
 venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
 
-# Local database and logs
+# Frontend / Node & CI build outputs
+node_modules/
+npm-debug.log*
+_site/
+
+# Local database, compiled Unix shared libs, and logs
 database/*.db
 *.log
 build-log.txt
 gcc-error.txt
 core/libemergency.so
 core/libemergency.dylib
-_site/
+tmp/
 
 # Editor and operating-system files
 .vscode/

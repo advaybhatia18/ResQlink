@@ -4,16 +4,8 @@ All application source code, database migrations, automated tests, and CI workfl
 
 ---
 
-### 1. Apply the Supabase Platform Schema Migration (`20261113_complete_platform_schema.sql`)
-1. **Why it requires manual action:** Applying DDL, constraints, triggers, and Row Level Security policies to your live Supabase Postgres database requires authenticated project owner access in your Supabase project (credentials are not in this repository).
-2. **Exact dashboard or file location:** **Supabase Dashboard > SQL Editor > New query**, using the contents of [`supabase/migrations/20261113_complete_platform_schema.sql`](./supabase/migrations/20261113_complete_platform_schema.sql) (or [`supabase/schema.sql`](./supabase/schema.sql) for a brand-new database).
-3. **Exact steps:**
-   - Open your Supabase project and navigate to **SQL Editor**.
-   - If starting from an existing database that already has `profiles` and `emergencies`, copy the full contents of `supabase/migrations/20261113_complete_platform_schema.sql` and run it. (For a fresh empty project, run `supabase/schema.sql` instead.)
-   - Confirm execution succeeds without SQL errors.
-4. **Expected result:** Tables `emergency_contacts`, `contact_notification_logs`, `emergency_status_history`, `admin_audit_logs`, `simulator_scenarios`, and `simulator_runs` exist with RLS enabled, and `emergencies` / `profiles` include the new columns (`category`, `recommended_services`, `requested_services`, `notes`, `admin_notes`, `phone`, `deletion_requested_at`, etc.).
-5. **Verification method:** Run `select table_name from information_schema.tables where table_schema = 'public' order by table_name;` in SQL Editor and verify all 8 tables appear with RLS enabled under **Database > Tables**.
-6. **Blocks deployment:** **Yes** — `/contacts`, `/simulator/*`, `/admin/audit-logs`, `PATCH /emergencies/{id}/status`, and extended SOS fields depend on these tables and columns.
+### [DONE] 1. Apply the Supabase Platform Schema Migration (`20261113_complete_platform_schema.sql`)
+- **Status:** **Completed** by project owner (database tables, columns, indexes, and RLS policies applied in Supabase).
 
 ---
 
@@ -22,7 +14,13 @@ All application source code, database migrations, automated tests, and CI workfl
 2. **Exact dashboard or file location:** **Render Dashboard > Your ResQlink Service (`resqlink-ji0g`) > Settings & Environment** (and [`render.yaml`](./render.yaml)).
 3. **Exact steps:**
    - Open Render Dashboard for `https://resqlink-ji0g.onrender.com/`.
-   - Under **Settings**, confirm **Build Command** is `pip install -r backend/requirements.txt` and **Start Command** starts Uvicorn from `backend` (for example `uvicorn app:app --host 0.0.0.0 --port $PORT` with Root Directory `backend`, or `uvicorn app:app --app-dir backend --host 0.0.0.0 --port $PORT` from repo root).
+   - Under **Settings**, match **Build Command** and **Start Command** to your **Root Directory**:
+     - If **Root Directory** is `backend` (recommended for manual Render services):
+       - **Build Command:** `pip install -r requirements.txt`
+       - **Start Command:** `uvicorn app:app --host 0.0.0.0 --port $PORT`
+     - If **Root Directory** is blank / repository root (`.`, matching `render.yaml`):
+       - **Build Command:** `pip install -r backend/requirements.txt`
+       - **Start Command:** `cd backend && uvicorn app:app --host 0.0.0.0 --port $PORT`
    - Under **Environment**, ensure all required variables are set:
      - `SUPABASE_URL`
      - `SUPABASE_KEY` (publishable/anon key)
