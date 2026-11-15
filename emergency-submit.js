@@ -681,6 +681,16 @@
             }
             elements.successTimestamp.dateTime = submittedAt.toISOString();
             elements.successTimestamp.textContent = `Recorded ${submittedAt.toLocaleString()}`;
+            try {
+                if (typeof BroadcastChannel === "function") {
+                    const ch = new BroadcastChannel("resqlink-emergencies");
+                    ch.postMessage({ type: "emergency-updated", alert_id: displayAlertId });
+                    ch.close();
+                }
+                localStorage.setItem("resqlink_emergency_sync", String(Date.now()));
+            } catch (_syncError) {
+                // Ignore cross-tab sync storage errors
+            }
             pendingAttempt = null;
             sessionIdempotencyKey = null;
             try {

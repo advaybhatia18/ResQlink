@@ -3,7 +3,7 @@
 (() => {
     const TOKEN_KEY = "resqlink_token";
     const USER_KEY = "resqlink_user";
-    const REQUEST_TIMEOUT_MS = 12000;
+    const REQUEST_TIMEOUT_MS = 35000;
 
     class ResqlinkApiError extends Error {
         constructor(message, status = 0, code = "request_failed") {

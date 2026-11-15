@@ -737,7 +737,7 @@
                     <div class="map-toolbar">
                         <span class="section-caption" id="mapSummary">Waiting for location data…</span>
                         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                            <span class="section-caption" id="pollingStatusLabel">Polling every 15s (pauses when tab hidden)</span>
+                            <span class="section-caption" id="pollingStatusLabel">Polling every 5s (pauses when tab hidden)</span>
                             <button class="button secondary" id="fitMapButton" type="button">⌖ Fit all markers</button>
                         </div>
                     </div>
@@ -866,9 +866,22 @@
         const auth = window.ResqlinkAuth;
         const ui = window.ResqlinkUI;
         const el = ui.el;
-        const REFRESH_INTERVAL_MS = 15000;
+        const REFRESH_INTERVAL_MS = 5000;
         const SEARCH_DEBOUNCE_MS = 250;
         const VALID_STATUSES = ["ACTIVE", "ACKNOWLEDGED", "DISPATCHED", "RESOLVED"];
+
+        function notifyEmergencySync() {
+            try {
+                if (typeof BroadcastChannel === "function") {
+                    const ch = new BroadcastChannel("resqlink-emergencies");
+                    ch.postMessage({ type: "emergency-updated" });
+                    ch.close();
+                }
+                localStorage.setItem("resqlink_emergency_sync", String(Date.now()));
+            } catch (_err) {
+                // Ignore cross-tab sync errors
+            }
+        }
 
         const SEVERITY_COLORS = {
             1: "#38dfac",
@@ -1086,8 +1099,14 @@
                 ]);
                 renderBreakdowns(overview);
                 renderAuditLogs(audit.logs || []);
-            } catch (_error) {
-                // Non-fatal if overview/audit is temporarily unavailable; primary alerts error handling runs in loadAlerts.
+            } catch (error) {
+                elements.auditLogBody.replaceChildren(
+                    el("tr", {}, el("td", {
+                        colSpan: 5,
+                        className: "section-caption",
+                        text: `Could not load audit logs: ${error.message}`
+                    }))
+                );
             }
         }
 
@@ -1153,6 +1172,7 @@
                                 })
                             });
                             await Promise.all([loadAlerts(true), openEmergencyModal(alertId)]);
+                            notifyEmergencySync();
                         } catch (error) {
                             statusMsg.textContent = error.message;
                             statusMsg.className = "admin-status error";
@@ -1323,6 +1343,7 @@
                     }
                 );
                 await loadAlerts(true);
+                notifyEmergencySync();
             } catch (error) {
                 if (error.code === "expired") {
                     sessionReady = false;
@@ -1396,7 +1417,7 @@
                 renderAlerts();
                 loadOverviewAndAudit();
                 setApiStatus("online", "API connected");
-                elements.pollingStatusLabel.textContent = `Polling every 15s · Updated ${new Date().toLocaleTimeString()}`;
+                elements.pollingStatusLabel.textContent = `Polling every 5s · Updated ${new Date().toLocaleTimeString()}`;
                 updateAdminStatus("Administrator access verified by the API.", "ok");
                 return true;
             } catch (error) {
@@ -1541,19 +1562,47 @@
             });
         });
 
+        function startAutoSync() {
+            if (refreshInterval !== null) return;
+            refreshInterval = setInterval(() => {
+                if (document.hidden) return;
+                if (sessionReady) {
+                    loadAlerts(false);
+                } else {
+                    verifyAdminSession();
+                }
+            }, REFRESH_INTERVAL_MS);
+        }
+
         document.addEventListener("visibilitychange", () => {
             if (!document.hidden && isAuthorized) {
                 loadAlerts(false);
             }
         });
 
+        window.addEventListener("focus", () => {
+            if (isAuthorized) loadAlerts(false);
+        });
+
+        window.addEventListener("storage", event => {
+            if (event.key === "resqlink_emergency_sync" && isAuthorized) {
+                loadAlerts(false);
+            }
+        });
+
+        if (typeof BroadcastChannel === "function") {
+            const syncChannel = new BroadcastChannel("resqlink-emergencies");
+            syncChannel.addEventListener("message", () => {
+                if (isAuthorized) loadAlerts(false);
+            });
+        }
+
         updateClock();
         setInterval(updateClock, 1000);
         verifyAdminSession().then(verified => {
-            if (!verified) return;
-            refreshInterval = setInterval(() => {
-                if (!document.hidden) loadAlerts(false);
-            }, REFRESH_INTERVAL_MS);
+            if (verified || !sessionReady) {
+                startAutoSync();
+            }
         });
     </script>
 </body>

@@ -112,8 +112,8 @@
                 });
 
                 const [alertsRes, contactsRes] = await Promise.allSettled([
-                    auth.request("/emergencies/me?limit=5", { method: "GET" }),
-                    auth.request("/contacts", { method: "GET" }),
+                    auth.request("/emergencies/me?limit=5", { method: "GET", cache: "no-store" }),
+                    auth.request("/contacts", { method: "GET", cache: "no-store" }),
                 ]);
 
                 const alertsContainer = document.getElementById("recentAlertsList");
