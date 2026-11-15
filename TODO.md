@@ -29,19 +29,19 @@ All application source code, database migrations, automated tests, and CI workfl
      - `PASSWORD_RESET_REDIRECT_URL` (`https://advaybhatia18.github.io/ResQlink/password-reset.html`)
    - Trigger a manual deploy after saving environment changes.
 4. **Expected result:** Render builds cleanly, compiles or loads the emergency priority engine, boots Uvicorn on `$PORT`, and responds `200 OK` on `GET /`.
-5. **Verification method:** Visit `<MY_RENDER_URL>/` and `<MY_RENDER_URL>/classification/config` in a browser or curl and verify JSON responses with no 500 errors or CORS failures from GitHub Pages.
+5. **Verification method:** Visit `https://resqlink-ji0g.onrender.com/` and `https://resqlink-ji0g.onrender.com/classification/config` in a browser or curl and verify JSON responses with no 500 errors or CORS failures from GitHub Pages.
 6. **Blocks deployment:** **Yes** — all authenticated routes fail with 503/CORS errors without valid Supabase environment variables and `FRONTEND_ORIGINS`.
 
 ---
 
-### 3. Set the GitHub Actions Repository Variable `RESQLINK_API_URL`
+### 3. Set the GitHub Actions Repository Variable `RESQLINK_API_URL` (Optional Override)
 1. **Why it requires manual action:** GitHub repository Settings -> Variables require repository owner permissions on GitHub.
 2. **Exact dashboard or file location:** **GitHub Repository > Settings > Secrets and variables > Actions > Variables**, used by [`.github/workflows/pages.yml`](./.github/workflows/pages.yml).
 3. **Exact steps:**
    - Open your GitHub repository settings -> **Secrets and variables > Actions**.
-   - Select the **Variables** tab and create/update variable `RESQLINK_API_URL` to `<MY_RENDER_URL>`.
+   - Select the **Variables** tab and create/update variable `RESQLINK_API_URL` to `https://resqlink-ji0g.onrender.com` (optional; `.github/workflows/pages.yml` already defaults to `https://resqlink-ji0g.onrender.com`).
    - Ensure GitHub Pages source is set to **GitHub Actions** under **Settings > Pages**.
-4. **Expected result:** On push to `main`, `.github/workflows/pages.yml` passes the test gate and publishes `_site/api-config.js` pointing to `<MY_RENDER_URL>`.
+4. **Expected result:** On push to `main`, `.github/workflows/pages.yml` passes the test gate and publishes `_site/api-config.js` pointing to `https://resqlink-ji0g.onrender.com`.
 5. **Verification method:** Inspect the deployed `api-config.js` on GitHub Pages or inspect network calls on `index.html` / `sos.html` DevTools Network tab.
 6. **Blocks deployment:** **Yes** (for GitHub Pages CI deployment, because line 91 of `pages.yml` checks that `RESQLINK_API_URL` is non-empty).
 

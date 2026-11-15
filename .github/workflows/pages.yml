@@ -62,7 +62,7 @@ jobs:
 
       - name: Prepare static site
         env:
-          RESQLINK_API_URL: ${{ vars.RESQLINK_API_URL }}
+          RESQLINK_API_URL: ${{ vars.RESQLINK_API_URL || 'https://resqlink-ji0g.onrender.com' }}
         run: |
           mkdir _site
           cp *.html *.css *.js _site/

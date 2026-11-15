@@ -74,8 +74,8 @@ Follow these steps in order to configure Supabase, Render, and GitHub Pages for 
    > **Important:** `FRONTEND_ORIGINS` must contain scheme + host + port only (no `/ResQlink/` path and no trailing slash).
 
 3. **Verify the deployed backend**
-   - Once deployed, copy your Render URL (`<MY_RENDER_URL>`, e.g. `https://resqlink-api-xxxx.onrender.com`).
-   - Open `<MY_RENDER_URL>/` and `<MY_RENDER_URL>/classification/config` in a browser and confirm both return JSON with HTTP 200.
+   - Render URL: `https://resqlink-ji0g.onrender.com`
+   - Open `https://resqlink-ji0g.onrender.com/` and `https://resqlink-ji0g.onrender.com/classification/config` in a browser and confirm both return JSON with HTTP 200.
 
 ---
 
@@ -88,11 +88,11 @@ Follow these steps in order to configure Supabase, Render, and GitHub Pages for 
    - Go to **Settings** -> **Pages**.
    - Under **Build and deployment** -> **Source**, select **GitHub Actions**.
 
-3. **Add the `RESQLINK_API_URL` repository variable**
-   - Go to **Settings** -> **Secrets and variables** -> **Actions** -> **Variables** tab.
-   - Click **New repository variable**:
+3. **Optional: Override `RESQLINK_API_URL` repository variable**
+   - `.github/workflows/pages.yml` and `api-config.js` already default to `https://resqlink-ji0g.onrender.com`.
+   - If you ever change the Render URL, go to **Settings** -> **Secrets and variables** -> **Actions** -> **Variables** tab and set:
      - **Name:** `RESQLINK_API_URL`
-     - **Value:** `<MY_RENDER_URL>` (for example `https://resqlink-api-xxxx.onrender.com`, no trailing slash)
+     - **Value:** `https://resqlink-ji0g.onrender.com` (no trailing slash)
 
 4. **Run the workflow**
    - Go to **Actions** -> **Test and deploy GitHub Pages** -> **Run workflow** (or push to `main`).

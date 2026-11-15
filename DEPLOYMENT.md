@@ -2,7 +2,7 @@
 
 ResQlink uses a split static-frontend + API-backend deployment:
 - **Frontend:** GitHub Pages (`.github/workflows/pages.yml`)
-- **Backend API:** Render Web Service (`render.yaml`) — `<MY_RENDER_URL>`
+- **Backend API:** Render Web Service (`render.yaml`) — `https://resqlink-ji0g.onrender.com`
 - **Database & Auth:** Supabase
 
 ## 1. Backend Deployment on Render
@@ -28,8 +28,8 @@ ResQlink uses a split static-frontend + API-backend deployment:
 ## 2. Frontend Deployment on GitHub Pages
 
 1. In GitHub **Settings > Pages**, choose **GitHub Actions** as the source.
-2. In **Settings > Secrets and variables > Actions > Variables**, set:
-   - `RESQLINK_API_URL` = `<MY_RENDER_URL>`
+2. In **Settings > Secrets and variables > Actions > Variables**, optionally set (defaults to `https://resqlink-ji0g.onrender.com`):
+   - `RESQLINK_API_URL` = `https://resqlink-ji0g.onrender.com`
 3. Push to `main`. `.github/workflows/pages.yml` will:
    - Run `python -m pytest` and `node --test frontend-tests/*.test.cjs`
    - Copy all `*.html`, `*.css`, and `*.js` files into `_site/`

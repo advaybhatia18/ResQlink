@@ -1,6 +1,6 @@
 # ResQlink API Documentation (`API_DOCUMENTATION.md`)
 
-Base URL (production Render deployment): `<MY_RENDER_URL>` (local default: `http://127.0.0.1:8000`)
+Base URL (production Render deployment): `https://resqlink-ji0g.onrender.com` (local default: `http://127.0.0.1:8000`)
 Authentication header for protected routes: `Authorization: Bearer <supabase_access_token>`
 
 ## Health & Classification (Public)
