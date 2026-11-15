@@ -1,6 +1,6 @@
 # ResQlink API Documentation (`API_DOCUMENTATION.md`)
 
-Base URL (production Render deployment): `https://resqlink-ji0g.onrender.com`
+Base URL (production Render deployment): `<MY_RENDER_URL>` (local default: `http://127.0.0.1:8000`)
 Authentication header for protected routes: `Authorization: Bearer <supabase_access_token>`
 
 ## Health & Classification (Public)
@@ -28,10 +28,11 @@ Authentication header for protected routes: `Authorization: Bearer <supabase_acc
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| `POST` | `/emergency` | User | Submit SOS alert. Header `Idempotency-Key` recommended. Body: `{severity (1..5), category?, requested_services?, latitude?, longitude?, location_accuracy_m?, location_accuracy_confirmed?, notes?}`. Returns `201` (new) or `200` (idempotent duplicate) |
+| `POST` | `/emergency` | User | Submit SOS alert. Header `Idempotency-Key` required. Body: `{severity (1..5), category?, requested_services?, latitude?, longitude?, location_accuracy_m?, location_accuracy_confirmed?, notes?}`. Returns `201` (new) or `200` (idempotent duplicate) with `{id, alert_id ("RQ-YYYYMMDD-XXXXXX"), status, priority, severity, label, recommended_services, created_at, submission_status, duplicate, classification}` |
 | `GET` | `/emergencies/me` | User | List signed-in user's own alerts; supports `status`, `category`, `limit`, `offset` |
-| `GET` | `/emergencies/{alert_id}` | Owner or Admin | Detailed emergency record including `status_history` timeline and `admin_notes` |
-| `GET` | `/emergencies` | **Admin** | List/filter all alerts (`severity`, `status`, `category`, `service`, `date_from`, `date_to`, `search`, `limit`, `offset`) |
+| `GET` | `/emergencies/by-alert-id/{alert_id}` | Owner or Admin | Look up a single alert by its human-readable `alert_id` (`RQ-YYYYMMDD-XXXXXX`), including `status_history` and `admin_notes` |
+| `GET` | `/emergencies/{alert_id}` | Owner or Admin | Detailed emergency record by numeric `id`, including `status_history` timeline and `admin_notes` |
+| `GET` | `/emergencies` | **Admin** | List/filter all alerts (`severity`, `status`, `category`, `service`, `date_from`, `date_to`, `search` including `alert_id`, `limit`, `offset`) |
 | `PATCH` | `/emergencies/{alert_id}/status` | **Admin** | Update alert lifecycle (`ACTIVE`, `ACKNOWLEDGED`, `DISPATCHED`, `RESOLVED`) and `admin_notes`; writes `emergency_status_history` & `admin_audit_logs` |
 | `PATCH` | `/emergency/{alert_id}/resolve` | **Admin** | Backward-compatible shortcut to mark an alert `RESOLVED` |
 

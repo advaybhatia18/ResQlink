@@ -128,7 +128,7 @@
                             list.append(
                                 el("div", { className: "rq-card", style: "padding:14px; background:rgba(8,14,25,0.65);" },
                                     el("div", { style: "display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;" },
-                                        el("strong", { text: `Alert #${alert.id} · ${ui.categoryLabel(alert.category)}` }),
+                                        el("strong", { text: `${alert.alert_id || `Alert #${alert.id}`} · ${ui.categoryLabel(alert.category)}` }),
                                         el("div", { style: "display:flex; gap:6px;" },
                                             el("span", { className: `rq-pill sev-${alert.severity}`, text: `Sev ${alert.severity}/5 · ${alert.label}` }),
                                             el("span", { className: `rq-pill status-${alert.status}`, text: alert.status })

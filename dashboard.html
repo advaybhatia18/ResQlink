@@ -753,7 +753,7 @@
                         <p>Search, filter, inspect details, update operational status, and review status history.</p>
                     </div>
                     <div class="alert-tools">
-                        <input class="field search-field" id="alertSearch" type="search" maxlength="100" placeholder="Search ID, category, severity, status, reporter…" aria-label="Search alerts">
+                        <input class="field search-field" id="alertSearch" type="search" maxlength="100" placeholder="Search Alert ID (RQ-...), category, severity, status, reporter…" aria-label="Search alerts">
                         <select class="field" id="severityFilter" aria-label="Filter by severity">
                             <option value="ALL">All severities</option>
                             <option value="1">Severity 1</option>
@@ -1012,7 +1012,7 @@
                 });
 
                 const popup = el("div", {},
-                    el("strong", { text: `Alert #${alert.id} — ${ui.categoryLabel(alert.category)}` }),
+                    el("strong", { text: `${alert.alert_id || `Alert #${alert.id}`} — ${ui.categoryLabel(alert.category)}` }),
                     el("div", { text: `Severity ${alert.severity}/5 (${alert.label}) · Priority ${alert.priority}` }),
                     el("div", { text: `Status: ${alert.status}` }),
                     el("div", {
@@ -1100,12 +1100,16 @@
                 return;
             }
             logs.forEach(entry => {
+                const matched = entry.emergency_id ? allAlerts.find(a => a.id === entry.emergency_id) : null;
+                const emergencyLabel = matched && matched.alert_id
+                    ? matched.alert_id
+                    : (entry.emergency_id ? `#${entry.emergency_id}` : "—");
                 elements.auditLogBody.append(
                     el("tr", {},
                         el("td", { text: formatDate(entry.created_at) }),
                         el("td", { text: String(entry.admin_id || "").slice(0, 8) || "—" }),
                         el("td", { text: entry.action || "—" }),
-                        el("td", { text: entry.emergency_id ? `#${entry.emergency_id}` : "—" }),
+                        el("td", { text: emergencyLabel }),
                         el("td", { text: `${entry.previous_status || "—"} → ${entry.new_status || "—"}` })
                     )
                 );
@@ -1173,7 +1177,7 @@
                 elements.detailBody.replaceChildren(
                     el("div", { style: "display:grid; gap:10px; font-size:13px;" },
                         el("div", {},
-                            el("strong", { text: `Alert #${detail.id} · ${ui.categoryLabel(detail.category)}` }),
+                            el("strong", { text: `${detail.alert_id || `Alert #${detail.id}`} · ${ui.categoryLabel(detail.category)}` }),
                             " ",
                             makeTag(`Status: ${detail.status}`, detail.status.toLowerCase())
                         ),
@@ -1235,7 +1239,7 @@
 
                 const title = document.createElement("h3");
                 title.className = "alert-title";
-                title.textContent = `Alert #${alert.id} — ${ui.categoryLabel(alert.category)} (${alert.label || "Emergency"})`;
+                title.textContent = `${alert.alert_id || `Alert #${alert.id}`} — ${ui.categoryLabel(alert.category)} (${alert.label || "Emergency"})`;
                 mainRow.appendChild(title);
 
                 const statusTag = makeTag(status, status.toLowerCase());
@@ -1292,7 +1296,7 @@
                     resolveButton.className = "button resolve";
                     resolveButton.type = "button";
                     resolveButton.textContent = "✓ Resolve";
-                    resolveButton.addEventListener("click", () => resolveEmergency(alert.id, resolveButton));
+                    resolveButton.addEventListener("click", () => resolveEmergency(alert.id, resolveButton, alert.alert_id));
                     actions.appendChild(resolveButton);
                 }
 
@@ -1301,9 +1305,10 @@
             });
         }
 
-        async function resolveEmergency(alertId, button) {
+        async function resolveEmergency(alertId, button, displayAlertId = null) {
             if (!sessionReady || !isAuthorized) return;
-            if (!window.confirm(`Resolve alert #${alertId}? This will mark it as resolved.`)) return;
+            const label = displayAlertId || `#${alertId}`;
+            if (!window.confirm(`Resolve ${label}? This will mark it as resolved.`)) return;
 
             button.disabled = true;
             button.textContent = "Resolving…";
@@ -1332,7 +1337,7 @@
                 }
                 button.disabled = false;
                 button.textContent = "Retry resolve";
-                updateAdminStatus(`Could not resolve alert #${alertId}: ${error.message}`, "error");
+                updateAdminStatus(`Could not resolve ${label}: ${error.message}`, "error");
             }
         }
 

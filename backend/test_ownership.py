@@ -16,18 +16,7 @@ USER_ID = "b2f3ac97-d7c2-48f4-a714-9e0f7abc1234"
 OTHER_USER_ID = "83c9e76b-27de-4d67-82a4-2ce5aabb5678"
 IDEMPOTENCY_KEY = "42542a3c-a73d-455f-9388-893fce868a47"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MIGRATION_PATH = (
-    PROJECT_ROOT
-    / "supabase"
-    / "migrations"
-    / "20261110_emergency_user_ownership.sql"
-)
-SUBMISSION_MIGRATION_PATH = (
-    PROJECT_ROOT
-    / "supabase"
-    / "migrations"
-    / "20261110163248_emergency_submission_safety.sql"
-)
+SCHEMA_PATH = PROJECT_ROOT / "supabase" / "schema.sql"
 
 
 def alert_record(user_id=USER_ID):
@@ -167,7 +156,7 @@ class StorageOwnershipTests(unittest.TestCase):
         self.assertEqual(alert_id, 42)
         self.assertFalse(duplicate)
         self.assertEqual(status, "ACTIVE")
-        inserted = self.client.table.return_value.insert.call_args.args[0]
+        inserted = self.client.table.return_value.insert.call_args_list[0].args[0]
         self.assertEqual(inserted["user_id"], USER_ID)
         self.assertEqual(inserted["idempotency_key"], IDEMPOTENCY_KEY)
         self.assertEqual(inserted["location_accuracy_m"], 18.0)
@@ -249,51 +238,51 @@ class StorageOwnershipTests(unittest.TestCase):
 
         result = storage.save_alert(emergency, USER_ID, IDEMPOTENCY_KEY)
 
-        inserted = self.client.table.return_value.insert.call_args.args[0]
+        inserted = self.client.table.return_value.insert.call_args_list[0].args[0]
         self.assertIsNone(inserted["latitude"])
         self.assertIsNone(inserted["longitude"])
         self.assertEqual(result, (43, False, "ACTIVE"))
 
 class OwnershipMigrationTests(unittest.TestCase):
     def test_migration_preserves_unowned_alerts_for_review(self):
-        migration = MIGRATION_PATH.read_text(encoding="utf-8").lower()
+        schema = SCHEMA_PATH.read_text(encoding="utf-8").lower()
 
-        self.assertIn("add column if not exists user_id uuid", migration)
-        self.assertIn("where emergency.user_id is null", migration)
-        self.assertIn("emergency.created_by is not null", migration)
-        self.assertIn("profile.id = emergency.created_by", migration)
-        self.assertIn("do not infer ownership", migration)
-        self.assertNotIn("delete from public.emergencies", migration)
-        self.assertNotIn("truncate public.emergencies", migration)
+        self.assertIn("add column if not exists user_id uuid", schema)
+        self.assertIn("where emergency.user_id is null", schema)
+        self.assertIn("emergency.created_by is not null", schema)
+        self.assertIn("profile.id = emergency.created_by", schema)
+        self.assertIn("do not infer ownership", schema)
+        self.assertNotIn("delete from public.emergencies", schema)
+        self.assertNotIn("truncate public.emergencies", schema)
 
     def test_rls_and_column_grants_protect_owner_field(self):
-        migration = MIGRATION_PATH.read_text(encoding="utf-8").lower()
+        schema = SCHEMA_PATH.read_text(encoding="utf-8").lower()
 
-        self.assertIn("enable row level security", migration)
-        self.assertIn("user_id = (select auth.uid())", migration)
-        self.assertIn("grant select on public.emergencies to authenticated", migration)
+        self.assertIn("enable row level security", schema)
+        self.assertIn("user_id = (select auth.uid())", schema)
+        self.assertIn("grant select on public.emergencies to authenticated", schema)
         self.assertNotRegex(
-            migration,
+            schema,
             r"grant\s+[^;]*(?:insert|update|delete)[^;]*"
             r"\s+on public\.emergencies to authenticated"
         )
 
     def test_migration_adds_retry_key_and_accuracy_without_dropping_rows(self):
-        migration = SUBMISSION_MIGRATION_PATH.read_text(encoding="utf-8").lower()
+        schema = SCHEMA_PATH.read_text(encoding="utf-8").lower()
 
-        self.assertIn("add column if not exists idempotency_key uuid", migration)
-        self.assertIn("add column if not exists location_accuracy_m double precision", migration)
-        self.assertIn("alter column latitude drop not null", migration)
-        self.assertIn("alter column longitude drop not null", migration)
+        self.assertIn("add column if not exists idempotency_key text", schema)
+        self.assertIn("add column if not exists location_accuracy_m double precision", schema)
+        self.assertIn("alter column latitude drop not null", schema)
+        self.assertIn("alter column longitude drop not null", schema)
         self.assertIn(
             "emergencies_user_id_idempotency_key_idx",
-            migration
+            schema
         )
-        self.assertIn("emergencies_coordinates_paired_check", migration)
-        self.assertIn("emergencies_latitude_range_check", migration)
-        self.assertIn("emergencies_longitude_range_check", migration)
-        self.assertIn("not valid", migration)
-        self.assertNotIn("delete from public.emergencies", migration)
+        self.assertIn("emergencies_coordinates_paired_check", schema)
+        self.assertIn("emergencies_latitude_range_check", schema)
+        self.assertIn("emergencies_longitude_range_check", schema)
+        self.assertIn("not valid", schema)
+        self.assertNotIn("delete from public.emergencies", schema)
 
 
 if __name__ == "__main__":

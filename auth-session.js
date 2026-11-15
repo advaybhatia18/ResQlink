@@ -149,8 +149,14 @@
         if (!response.ok) {
             const detail = data && typeof data.detail === "string"
                 ? data.detail
-                : `The ResQlink API returned status ${response.status}.`;
-            throw new AuthError(detail, response.status, "api_error");
+                : response.status === 429
+                    ? "Too many requests. Please wait a moment and try again."
+                    : `The ResQlink API returned status ${response.status}.`;
+            throw new AuthError(
+                detail,
+                response.status,
+                response.status === 429 ? "rate_limited" : "api_error"
+            );
         }
         return data;
     }

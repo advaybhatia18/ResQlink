@@ -228,6 +228,16 @@
         }
     }
 
+    function redirectIfExpired(error, nextPage, isAdmin = false) {
+        if (error && (error.code === "expired" || error.code === "unauthenticated")) {
+            const loginPage = isAdmin ? "admin-login.html" : "login.html";
+            const suffix = error.code === "expired" ? "&expired=1" : "";
+            window.location.replace(`${loginPage}?next=${encodeURIComponent(nextPage)}${suffix}`);
+            return true;
+        }
+        return false;
+    }
+
     window.ResqlinkUI = Object.freeze({
         CATEGORY_LABELS,
         SERVICE_LABELS,
@@ -235,6 +245,7 @@
         el,
         formatDate,
         initNav,
+        redirectIfExpired,
         serviceLabel,
         showBanner,
     });

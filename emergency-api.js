@@ -147,11 +147,17 @@
             },
             body: JSON.stringify(payload)
         });
+        const hasValidAlertId = Boolean(
+            data
+            && (
+                (typeof data.alert_id === "string" && data.alert_id.trim().length > 0)
+                || (Number.isInteger(data.alert_id) && data.alert_id >= 1)
+            )
+        );
         if (
             !data
-            || !Number.isInteger(data.alert_id)
-            || data.alert_id < 1
-            || !["ACTIVE", "RESOLVED"].includes(data.status)
+            || !hasValidAlertId
+            || !["ACTIVE", "ACKNOWLEDGED", "DISPATCHED", "RESOLVED"].includes(data.status)
             || !["submitted", "already_submitted"].includes(data.submission_status)
         ) {
             throw new ResqlinkApiError(

@@ -51,26 +51,22 @@ class PlatformIntegrityTests(unittest.TestCase):
 
     def test_supabase_migration_and_schema_rls_and_isolation(self):
         schema_sql = (ROOT / "supabase" / "schema.sql").read_text(encoding="utf-8")
-        migration_sql = (
-            ROOT / "supabase" / "migrations" / "20261113_complete_platform_schema.sql"
-        ).read_text(encoding="utf-8")
 
-        for sql_text, label in ((schema_sql, "schema.sql"), (migration_sql, "20261113_complete_platform_schema.sql")):
-            for table in (
-                "emergency_contacts",
-                "contact_notification_logs",
-                "emergency_status_history",
-                "admin_audit_logs",
-                "simulator_scenarios",
-                "simulator_runs",
-            ):
-                self.assertIn(f"public.{table}", sql_text, f"{label} missing table {table}")
-                self.assertIn(
-                    f"alter table public.{table} enable row level security",
-                    sql_text.lower(),
-                    f"{label} must enable RLS on {table}",
-                )
-            self.assertIn("is_simulated boolean not null default true check (is_simulated = true)", sql_text.lower())
+        for table in (
+            "emergency_contacts",
+            "contact_notification_logs",
+            "emergency_status_history",
+            "admin_audit_logs",
+            "simulator_scenarios",
+            "simulator_runs",
+        ):
+            self.assertIn(f"public.{table}", schema_sql, f"schema.sql missing table {table}")
+            self.assertIn(
+                f"alter table public.{table} enable row level security",
+                schema_sql.lower(),
+                f"schema.sql must enable RLS on {table}",
+            )
+        self.assertIn("is_simulated boolean not null default true check (is_simulated = true)", schema_sql.lower())
 
     def test_ci_workflow_copies_all_js_and_runs_tests(self):
         workflow = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")

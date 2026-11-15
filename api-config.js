@@ -1,2 +1,2 @@
-// Set this to the deployed FastAPI base URL before publishing on GitHub Pages.
-window.RESQLINK_API_URL = "https://resqlink-ji0g.onrender.com";
+// Local development default; GitHub Actions overwrites _site/api-config.js from RESQLINK_API_URL.
+window.RESQLINK_API_URL = "http://127.0.0.1:8000";

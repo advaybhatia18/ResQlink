@@ -11,25 +11,25 @@ All application source code, database migrations, automated tests, and CI workfl
 
 ### 2. Configure Render Backend Environment Variables & Blueprint Sync
 1. **Why it requires manual action:** Private Supabase keys (`SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_KEY`), CORS origins, and Render service configuration live in your private Render account and cannot be read or modified from local code.
-2. **Exact dashboard or file location:** **Render Dashboard > Your ResQlink Service (`resqlink-ji0g`) > Settings & Environment** (and [`render.yaml`](./render.yaml)).
+2. **Exact dashboard or file location:** **Render Dashboard > Your ResQlink Service > Settings & Environment** (and [`render.yaml`](./render.yaml)).
 3. **Exact steps:**
-   - Open Render Dashboard for `https://resqlink-ji0g.onrender.com/`.
+   - Open Render Dashboard for your service (`<MY_RENDER_URL>`).
    - Under **Settings**, match **Build Command** and **Start Command** to your **Root Directory**:
      - If **Root Directory** is `backend` (recommended for manual Render services):
        - **Build Command:** `pip install -r requirements.txt`
        - **Start Command:** `uvicorn app:app --host 0.0.0.0 --port $PORT`
      - If **Root Directory** is blank / repository root (`.`, matching `render.yaml`):
        - **Build Command:** `pip install -r backend/requirements.txt`
-       - **Start Command:** `cd backend && uvicorn app:app --host 0.0.0.0 --port $PORT`
+       - **Start Command:** `uvicorn app:app --app-dir backend --host 0.0.0.0 --port $PORT`
    - Under **Environment**, ensure all required variables are set:
-     - `SUPABASE_URL`
+     - `SUPABASE_URL` (`<SUPABASE_URL>`)
      - `SUPABASE_KEY` (publishable/anon key)
      - `SUPABASE_SERVICE_ROLE_KEY` (secret/service-role key — backend only)
-     - `FRONTEND_ORIGINS` (e.g., `https://advaybhatia18.github.io,http://127.0.0.1:5500,http://localhost:5500`)
-     - `PASSWORD_RESET_REDIRECT_URL` (e.g., `https://advaybhatia18.github.io/Resqlink/password-reset.html` or your exact Pages path)
+     - `FRONTEND_ORIGINS` (`https://advaybhatia18.github.io,https://aksh.is-a.dev,http://127.0.0.1:5500,http://localhost:5500`)
+     - `PASSWORD_RESET_REDIRECT_URL` (`https://advaybhatia18.github.io/ResQlink/password-reset.html`)
    - Trigger a manual deploy after saving environment changes.
 4. **Expected result:** Render builds cleanly, compiles or loads the emergency priority engine, boots Uvicorn on `$PORT`, and responds `200 OK` on `GET /`.
-5. **Verification method:** Visit `https://resqlink-ji0g.onrender.com/` and `https://resqlink-ji0g.onrender.com/classification/config` in a browser or curl and verify JSON responses with no 500 errors or CORS failures from GitHub Pages.
+5. **Verification method:** Visit `<MY_RENDER_URL>/` and `<MY_RENDER_URL>/classification/config` in a browser or curl and verify JSON responses with no 500 errors or CORS failures from GitHub Pages.
 6. **Blocks deployment:** **Yes** — all authenticated routes fail with 503/CORS errors without valid Supabase environment variables and `FRONTEND_ORIGINS`.
 
 ---
@@ -39,9 +39,9 @@ All application source code, database migrations, automated tests, and CI workfl
 2. **Exact dashboard or file location:** **GitHub Repository > Settings > Secrets and variables > Actions > Variables**, used by [`.github/workflows/pages.yml`](./.github/workflows/pages.yml).
 3. **Exact steps:**
    - Open your GitHub repository settings -> **Secrets and variables > Actions**.
-   - Select the **Variables** tab and create/update variable `RESQLINK_API_URL` to `https://resqlink-ji0g.onrender.com`.
+   - Select the **Variables** tab and create/update variable `RESQLINK_API_URL` to `<MY_RENDER_URL>`.
    - Ensure GitHub Pages source is set to **GitHub Actions** under **Settings > Pages**.
-4. **Expected result:** On push to `main`, `.github/workflows/pages.yml` passes the test gate and publishes `_site/api-config.js` pointing to `https://resqlink-ji0g.onrender.com`.
+4. **Expected result:** On push to `main`, `.github/workflows/pages.yml` passes the test gate and publishes `_site/api-config.js` pointing to `<MY_RENDER_URL>`.
 5. **Verification method:** Inspect the deployed `api-config.js` on GitHub Pages or inspect network calls on `index.html` / `sos.html` DevTools Network tab.
 6. **Blocks deployment:** **Yes** (for GitHub Pages CI deployment, because line 91 of `pages.yml` checks that `RESQLINK_API_URL` is non-empty).
 

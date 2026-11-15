@@ -34,6 +34,8 @@
         status: document.getElementById("statusMessage"),
         successPanel: document.getElementById("successPanel"),
         successAlertId: document.getElementById("successAlertId"),
+        successStatus: document.getElementById("successStatus"),
+        copyAlertIdButton: document.getElementById("copyAlertIdButton"),
         successTimestamp: document.getElementById("successTimestamp"),
         newAlertButton: document.getElementById("newAlertButton"),
         locationActions: document.getElementById("locationActions"),
@@ -68,6 +70,18 @@
     let currentClassification = null;
     let customRequestedServices = null;
     let classifyTimer = null;
+    let sessionIdempotencyKey = null;
+
+    function getSessionIdempotencyKey() {
+        if (pendingAttempt && pendingAttempt.key) {
+            sessionIdempotencyKey = pendingAttempt.key;
+            return sessionIdempotencyKey;
+        }
+        if (!sessionIdempotencyKey) {
+            sessionIdempotencyKey = makeIdempotencyKey();
+        }
+        return sessionIdempotencyKey;
+    }
 
     function el(tag, attrs = {}, ...children) {
         return window.ResqlinkUI.el(tag, attrs, ...children);
@@ -657,11 +671,18 @@
                 attempt.payload,
                 attempt.key
             );
-            const submittedAt = new Date();
-            elements.successAlertId.textContent = `Alert #${result.alert_id}`;
+            const displayAlertId = typeof result.alert_id === "string"
+                ? result.alert_id
+                : `Alert #${result.alert_id}`;
+            const submittedAt = result.created_at ? new Date(result.created_at) : new Date();
+            elements.successAlertId.textContent = displayAlertId;
+            if (elements.successStatus) {
+                elements.successStatus.textContent = result.status || "ACTIVE";
+            }
             elements.successTimestamp.dateTime = submittedAt.toISOString();
             elements.successTimestamp.textContent = `Recorded ${submittedAt.toLocaleString()}`;
             pendingAttempt = null;
+            sessionIdempotencyKey = null;
             try {
                 sessionStorage.removeItem(PENDING_ATTEMPT_KEY);
                 elements.severity.disabled = false;
@@ -673,7 +694,7 @@
             const duplicate = result.submission_status === "already_submitted";
             setProgress(
                 "success",
-                `${duplicate ? "This alert was already recorded" : "Alert recorded"} as #${result.alert_id} (${result.status}). Public emergency services were not contacted.`,
+                `${duplicate ? "This alert was already recorded" : "Alert recorded"} as ${displayAlertId} (${result.status}). Public emergency services were not contacted.`,
                 duplicate ? "ALREADY SAVED" : "RECORDED"
             );
             elements.button.querySelector(".sos-button-label").textContent = "SENT";
@@ -746,7 +767,7 @@
             }
 
             attempt = {
-                key: makeIdempotencyKey(),
+                key: getSessionIdempotencyKey(),
                 userId: currentUser.id,
                 payload
             };
@@ -860,6 +881,7 @@
 
     function prepareAnotherAlert() {
         if (flowBusy || pendingAttempt) return;
+        sessionIdempotencyKey = makeIdempotencyKey();
         elements.successPanel.hidden = true;
         elements.newAlertButton.hidden = true;
         elements.severity.disabled = false;
@@ -882,6 +904,21 @@
     elements.discardPending.addEventListener("click", discardPendingRetry);
     elements.retryAuth.addEventListener("click", verifySession);
     elements.newAlertButton.addEventListener("click", prepareAnotherAlert);
+    if (elements.copyAlertIdButton) {
+        elements.copyAlertIdButton.addEventListener("click", async () => {
+            const text = (elements.successAlertId.textContent || "").trim();
+            if (!text || text === "RQ-—") return;
+            try {
+                await navigator.clipboard.writeText(text);
+                elements.copyAlertIdButton.textContent = "Copied";
+                window.setTimeout(() => {
+                    elements.copyAlertIdButton.textContent = "Copy ID";
+                }, 1600);
+            } catch (_err) {
+                elements.copyAlertIdButton.textContent = text;
+            }
+        });
+    }
     elements.severity.addEventListener("change", () => scheduleClassificationRefresh(true));
     if (elements.category) {
         elements.category.addEventListener("change", () => scheduleClassificationRefresh(true));

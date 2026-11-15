@@ -1,5 +1,8 @@
-import os
 import math
+import os
+import re
+import secrets
+from datetime import datetime, timezone
 from functools import lru_cache
 from uuid import UUID
 
@@ -21,7 +24,10 @@ def _supabase_url() -> str:
 
 
 def _supabase_service_role_key() -> str:
-    value = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    value = (
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or os.getenv("SUPABASE_SECRET_KEY")
+    )
     if not value:
         raise HTTPException(
             status_code=503,
@@ -31,7 +37,11 @@ def _supabase_service_role_key() -> str:
 
 
 def _supabase_anon_key() -> str:
-    value = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+    value = (
+        os.getenv("SUPABASE_KEY")
+        or os.getenv("SUPABASE_ANON_KEY")
+        or os.getenv("SUPABASE_PUBLISHABLE_KEY")
+    )
     if not value:
         raise HTTPException(
             status_code=503,
@@ -116,6 +126,15 @@ def revoke_supabase_session(access_token: str) -> None:
 
 
 VALID_ALERT_STATUSES = {"ACTIVE", "ACKNOWLEDGED", "DISPATCHED", "RESOLVED"}
+ALERT_ID_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+ALERT_ID_PATTERN = re.compile(r"^RQ-\d{8}-[A-Z0-9]{6}$")
+
+
+def generate_alert_id() -> str:
+    """Generate a human-readable unique alert ID: RQ-YYYYMMDD-XXXXXX."""
+    date_part = datetime.now(timezone.utc).strftime("%Y%m%d")
+    code_part = "".join(secrets.choice(ALERT_ID_ALPHABET) for _ in range(6))
+    return f"RQ-{date_part}-{code_part}"
 VALID_CATEGORIES = {
     "MEDICAL",
     "ROAD_ACCIDENT",
@@ -164,6 +183,31 @@ def get_user_profile(user_id: str) -> dict | None:
             detail="Supabase returned an invalid user profile"
         )
     return profile
+
+
+def ensure_user_profile(user_id: str, name: str | None = None) -> dict | None:
+    """Create a default USER profile row if the Auth trigger did not run."""
+    try:
+        owner_id = str(UUID(user_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+    existing = get_user_profile(owner_id)
+    if existing:
+        return existing
+
+    cleaned_name = (name or "").strip()[:100] or "User"
+    try:
+        get_database_client().table("profiles").upsert(
+            {"id": owner_id, "name": cleaned_name, "role": "USER"},
+            on_conflict="id",
+        ).execute()
+    except (APIError, HTTPError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not initialize the Supabase user profile",
+        ) from error
+    return get_user_profile(owner_id)
 
 
 def update_user_profile(
@@ -249,8 +293,8 @@ def _find_idempotent_alert(user_id: str, idempotency_key: str) -> dict | None:
             get_database_client()
             .table("emergencies")
             .select(
-                "id, user_id, idempotency_key, severity, latitude, longitude, "
-                "location_accuracy_m, status"
+                "id, alert_id, user_id, idempotency_key, severity, latitude, longitude, "
+                "location_accuracy_m, status, created_at"
             )
             .eq("user_id", user_id)
             .eq("idempotency_key", idempotency_key)
@@ -318,13 +362,13 @@ def save_alert(
 
     if not isinstance(idempotency_key, str):
         raise HTTPException(status_code=422, detail="Invalid idempotency key")
+    cleaned_key = idempotency_key.strip()
+    if not cleaned_key or len(cleaned_key) > 128:
+        raise HTTPException(status_code=422, detail="Invalid idempotency key")
     try:
-        idempotency_key = str(UUID(idempotency_key))
-    except (ValueError, TypeError, AttributeError) as error:
-        raise HTTPException(
-            status_code=422,
-            detail="Invalid idempotency key"
-        ) from error
+        idempotency_key = str(UUID(cleaned_key))
+    except (ValueError, TypeError, AttributeError):
+        idempotency_key = cleaned_key
 
     severity = emergency.get("severity")
     expected_labels = {
@@ -379,6 +423,10 @@ def save_alert(
                 status_code=409,
                 detail="Idempotency key was already used for a different alert"
             )
+        if existing.get("alert_id"):
+            emergency["alert_id"] = existing["alert_id"]
+        if existing.get("created_at"):
+            emergency["created_at"] = existing["created_at"]
         return existing["id"], True, existing["status"]
 
     insert_data = {
@@ -399,31 +447,54 @@ def save_alert(
         insert_data["requested_services"] = list(emergency["requested_services"])
     if isinstance(emergency.get("notes"), str) and emergency["notes"].strip():
         insert_data["notes"] = emergency["notes"].strip()[:1000]
-    try:
-        response = (
-            get_database_client()
-            .table("emergencies")
-            .insert(insert_data)
-            .execute()
-        )
-    except APIError as error:
-        existing = _find_idempotent_alert(user_id, idempotency_key)
-        if existing is not None:
-            if not _matches_emergency(existing, emergency):
-                raise HTTPException(
-                    status_code=409,
-                    detail="Idempotency key was already used for a different alert"
-                ) from error
-            return existing["id"], True, existing["status"]
+
+    response = None
+    generated_alert_id = None
+    last_api_error = None
+    for _attempt in range(5):
+        generated_alert_id = generate_alert_id()
+        insert_data["alert_id"] = generated_alert_id
+        try:
+            response = (
+                get_database_client()
+                .table("emergencies")
+                .insert(insert_data)
+                .execute()
+            )
+            last_api_error = None
+            break
+        except APIError as error:
+            existing = _find_idempotent_alert(user_id, idempotency_key)
+            if existing is not None:
+                if not _matches_emergency(existing, emergency):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Idempotency key was already used for a different alert"
+                    ) from error
+                if existing.get("alert_id"):
+                    emergency["alert_id"] = existing["alert_id"]
+                if existing.get("created_at"):
+                    emergency["created_at"] = existing["created_at"]
+                return existing["id"], True, existing["status"]
+            error_text = str(error).lower()
+            if getattr(error, "code", None) == "23505" or "alert_id" in error_text:
+                last_api_error = error
+                continue
+            raise HTTPException(
+                status_code=503,
+                detail="Could not save the emergency to Supabase"
+            ) from error
+        except HTTPError as error:
+            raise HTTPException(
+                status_code=503,
+                detail="Could not save the emergency to Supabase"
+            ) from error
+
+    if last_api_error is not None or response is None:
         raise HTTPException(
             status_code=503,
             detail="Could not save the emergency to Supabase"
-        ) from error
-    except HTTPError as error:
-        raise HTTPException(
-            status_code=503,
-            detail="Could not save the emergency to Supabase"
-        ) from error
+        ) from last_api_error
 
     if not isinstance(response.data, list) or not response.data:
         raise HTTPException(
@@ -443,6 +514,23 @@ def save_alert(
             status_code=503,
             detail="Supabase returned an invalid saved emergency"
         )
+
+    resolved_alert_id = row.get("alert_id") or generated_alert_id
+    emergency["alert_id"] = resolved_alert_id
+    if row.get("created_at"):
+        emergency["created_at"] = row["created_at"]
+
+    try:
+        get_database_client().table("emergency_status_history").insert({
+            "emergency_id": row["id"],
+            "changed_by": user_id,
+            "previous_status": None,
+            "new_status": "ACTIVE",
+            "note": "Initial emergency report recorded.",
+        }).execute()
+    except (APIError, HTTPError):
+        pass
+
     return row["id"], False, row["status"]
 
 
@@ -531,7 +619,7 @@ def get_alerts(user_id: str | None = None, limit: int | None = None) -> list[dic
 
     try:
         query = get_database_client().table("emergencies").select(
-            "id, user_id, severity, label, priority, status, created_at, "
+            "id, alert_id, user_id, severity, label, priority, status, created_at, "
             "latitude, longitude, location_accuracy_m, category, "
             "recommended_services, requested_services, notes, admin_notes, "
             "updated_at, acknowledged_at, resolved_at"
@@ -560,9 +648,11 @@ def get_alerts(user_id: str | None = None, limit: int | None = None) -> list[dic
     ]
 
 
-def get_alert_detail(alert_id: int, user_id: str | None = None) -> dict:
-    if type(alert_id) is not int or alert_id < 1:
-        raise HTTPException(status_code=422, detail="Invalid emergency ID")
+def _load_alert_detail_by_column(
+    column: str,
+    value: int | str,
+    user_id: str | None = None,
+) -> dict:
     if user_id is not None:
         try:
             user_id = str(UUID(user_id))
@@ -571,11 +661,11 @@ def get_alert_detail(alert_id: int, user_id: str | None = None) -> dict:
 
     try:
         query = get_database_client().table("emergencies").select(
-            "id, user_id, severity, label, priority, status, created_at, "
+            "id, alert_id, user_id, severity, label, priority, status, created_at, "
             "latitude, longitude, location_accuracy_m, category, "
             "recommended_services, requested_services, notes, admin_notes, "
             "updated_at, acknowledged_at, resolved_at"
-        ).eq("id", alert_id)
+        ).eq(column, value)
         if user_id is not None:
             query = query.eq("user_id", user_id)
         response = query.limit(1).execute()
@@ -600,7 +690,7 @@ def get_alert_detail(alert_id: int, user_id: str | None = None) -> dict:
             get_database_client()
             .table("emergency_status_history")
             .select("id, previous_status, new_status, note, created_at")
-            .eq("emergency_id", alert_id)
+            .eq("emergency_id", record["id"])
             .order("id", desc=False)
             .execute()
         )
@@ -619,6 +709,21 @@ def get_alert_detail(alert_id: int, user_id: str | None = None) -> dict:
         }]
     record["status_history"] = history
     return record
+
+
+def get_alert_detail(alert_id: int, user_id: str | None = None) -> dict:
+    if type(alert_id) is not int or alert_id < 1:
+        raise HTTPException(status_code=422, detail="Invalid emergency ID")
+    return _load_alert_detail_by_column("id", alert_id, user_id=user_id)
+
+
+def get_alert_detail_by_alert_id(alert_id_code: str, user_id: str | None = None) -> dict:
+    if not isinstance(alert_id_code, str):
+        raise HTTPException(status_code=422, detail="Invalid alert ID")
+    normalized = alert_id_code.strip().upper()
+    if not ALERT_ID_PATTERN.fullmatch(normalized):
+        raise HTTPException(status_code=422, detail="Invalid alert ID format")
+    return _load_alert_detail_by_column("alert_id", normalized, user_id=user_id)
 
 
 def update_alert_status(
@@ -679,7 +784,7 @@ def update_alert_status(
             .table("emergencies")
             .update(update_fields)
             .eq("id", alert_id)
-            .select("id, status, admin_notes, updated_at, acknowledged_at, resolved_at")
+            .select("id, alert_id, status, admin_notes, updated_at, acknowledged_at, resolved_at")
             .execute()
         )
     except (APIError, HTTPError) as error:
@@ -713,7 +818,8 @@ def update_alert_status(
         pass
 
     return {
-        "alert_id": alert_id,
+        "id": alert_id,
+        "alert_id": update_resp.data[0].get("alert_id") or alert_id,
         "previous_status": previous_status,
         "status": normalized_status,
         "admin_notes": update_resp.data[0].get("admin_notes"),

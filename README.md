@@ -48,8 +48,7 @@ ResQlink is an emergency-assistance platform, triage classification aid, persona
 │   └── emergency.c            # Native C priority & severity engine
 ├── frontend-tests/            # Node.js built-in test runner suites (`*.test.cjs`)
 ├── supabase/
-│   ├── schema.sql             # Consolidated database schema, RLS policies & triggers
-│   └── migrations/            # Additive versioned SQL migrations
+│   └── schema.sql             # Unified Postgres schema, RLS policies, indexes & Auth trigger
 ├── render.yaml                # Render FastAPI service blueprint
 ├── .github/workflows/pages.yml# CI test gate + GitHub Pages artifact build
 ├── TODO.md                    # Remaining manual setup steps for the project owner
