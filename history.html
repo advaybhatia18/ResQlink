@@ -92,21 +92,36 @@
                 modal.hidden = false;
                 modalBody.replaceChildren(el("p", { className: "rq-muted", text: "Loading timeline and details…" }));
                 try {
-                    const detail = await auth.request(`/emergencies/${encodeURIComponent(alertId)}`, { method: "GET" });
+                    const detail = await auth.request(`/emergencies/${encodeURIComponent(alertId)}`, {
+                        method: "GET",
+                        cache: "no-store"
+                    });
                     const history = detail.status_history || [];
                     const requested = (detail.requested_services || []).map(ui.serviceLabel).join(", ") || "None specified";
                     const recommended = (detail.recommended_services || []).map(ui.serviceLabel).join(", ") || "None";
 
                     const timeline = el("ul", { style: "margin:8px 0 0; padding-left:18px; display:grid; gap:6px;" });
-                    history.forEach(item => {
+                    if (history.length === 0) {
                         timeline.append(
                             el("li", {},
-                                el("strong", { text: item.new_status }),
-                                el("span", { className: "rq-muted", text: ` · ${ui.formatDate(item.created_at)}` }),
-                                item.note ? el("div", { className: "rq-muted", style: "font-size:12.5px;", text: item.note }) : null
+                                el("strong", { text: detail.status || "ACTIVE" }),
+                                el("span", { className: "rq-muted", text: ` · ${ui.formatDate(detail.created_at)}` }),
+                                el("div", { className: "rq-muted", style: "font-size:12.5px;", text: "Initial emergency report recorded." })
                             )
                         );
-                    });
+                    } else {
+                        history.forEach(item => {
+                            timeline.append(
+                                el("li", {},
+                                    el("strong", {
+                                        text: `${item.previous_status ? `${item.previous_status} → ` : ""}${item.new_status}`
+                                    }),
+                                    el("span", { className: "rq-muted", text: ` · ${ui.formatDate(item.created_at)}` }),
+                                    item.note ? el("div", { className: "rq-muted", style: "font-size:12.5px;", text: item.note }) : null
+                                )
+                            );
+                        });
+                    }
 
                     modalBody.replaceChildren(
                         el("div", { style: "display:grid; gap:10px; font-size:14px;" },
@@ -141,7 +156,10 @@
                 const query = params.toString();
 
                 try {
-                    const data = await auth.request(`/emergencies/me${query ? `?${query}` : ""}`, { method: "GET" });
+                    const data = await auth.request(`/emergencies/me${query ? `?${query}` : ""}`, {
+                        method: "GET",
+                        cache: "no-store"
+                    });
                     const alerts = data.emergencies || [];
                     listEl.replaceChildren();
                     if (alerts.length === 0) {
@@ -204,10 +222,34 @@
             statusFilter.addEventListener("change", loadHistory);
             categoryFilter.addEventListener("change", loadHistory);
 
+            let authenticated = false;
+
+            document.addEventListener("visibilitychange", () => {
+                if (!document.hidden && authenticated) loadHistory();
+            });
+            window.addEventListener("focus", () => {
+                if (authenticated) loadHistory();
+            });
+            window.addEventListener("storage", event => {
+                if (event.key === "resqlink_emergency_sync" && authenticated) loadHistory();
+            });
+            if (typeof BroadcastChannel === "function") {
+                const syncChannel = new BroadcastChannel("resqlink-emergencies");
+                syncChannel.addEventListener("message", () => {
+                    if (authenticated) loadHistory();
+                });
+            }
+
             (async () => {
                 try {
                     const user = await ui.initNav("history", { requireAuth: true, nextPage: "history.html" });
-                    if (user) await loadHistory();
+                    if (user) {
+                        authenticated = true;
+                        await loadHistory();
+                        window.setInterval(() => {
+                            if (!document.hidden && authenticated) loadHistory();
+                        }, 10000);
+                    }
                 } catch (error) {
                     ui.showBanner(banner, error.message, "error");
                 }
