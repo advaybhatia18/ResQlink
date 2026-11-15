@@ -9,15 +9,14 @@
    - **Secret / service_role key** -> `SUPABASE_SERVICE_ROLE_KEY` (**never place in frontend files**)
 3. Open **SQL Editor > New query**, paste the full contents of [`supabase/schema.sql`](./supabase/schema.sql), and run it.
 
-## 2. Upgrading an Existing Supabase Database
+## 2. Unified Idempotent Schema (`supabase/schema.sql`)
 
-If `public.profiles` and `public.emergencies` were already created using earlier ResQlink SQL:
-1. Ensure [`supabase/migrations/20261110_emergency_user_ownership.sql`](./supabase/migrations/20261110_emergency_user_ownership.sql) and [`supabase/migrations/20261110163248_emergency_submission_safety.sql`](./supabase/migrations/20261110163248_emergency_submission_safety.sql) have already been applied.
-2. Run [`supabase/migrations/20261113_complete_platform_schema.sql`](./supabase/migrations/20261113_complete_platform_schema.sql) in the SQL Editor.
+All tables, columns (`alert_id`, `idempotency_key`, `user_id`, etc.), constraints, indexes, RLS policies, and the `handle_new_resqlink_user()` trigger are consolidated in [`supabase/schema.sql`](./supabase/schema.sql).
+It is safe to run on a fresh project or re-run idempotently on an existing database. To wipe all ResQlink tables and reset from scratch, uncomment the `drop table if exists ... cascade;` block at the top of `supabase/schema.sql` before running it.
 
-This migration is additive and idempotent (`if not exists` / `create or replace`), adding:
+Included schema components:
 - Extended `profiles` (`phone`, `updated_at`, `deletion_requested_at`)
-- Extended `emergencies` (`category`, `recommended_services`, `requested_services`, `notes`, `admin_notes`, `updated_at`, `acknowledged_at`, `resolved_at`, expanded status check `ACTIVE | ACKNOWLEDGED | DISPATCHED | RESOLVED`)
+- Extended `emergencies` (`alert_id`, `idempotency_key`, `user_id`, `category`, `recommended_services`, `requested_services`, `notes`, `admin_notes`, `updated_at`, `acknowledged_at`, `resolved_at`, expanded status check `ACTIVE | ACKNOWLEDGED | DISPATCHED | RESOLVED`)
 - `emergency_contacts` (with RLS owner policy + indexes)
 - `contact_notification_logs` (with RLS owner policy)
 - `emergency_status_history` (with RLS owner/admin read policies)
