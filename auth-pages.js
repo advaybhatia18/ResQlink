@@ -25,8 +25,9 @@
     ]);
 
     function postLoginDestination(defaultPage = "user-dashboard.html") {
-        const target = new URLSearchParams(window.location.search).get("next");
-        return ALLOWED_NEXT_PAGES.has(target) ? target : defaultPage;
+        const raw = new URLSearchParams(window.location.search).get("next") || "";
+        const cleaned = raw.replace(/^(\.\/|\/ResQlink\/)/i, "");
+        return ALLOWED_NEXT_PAGES.has(cleaned) ? cleaned : defaultPage;
     }
 
     function configurePasswordToggles() {
@@ -173,7 +174,7 @@
             setBusy(button, true, "Creating account…");
             showMessage(message, "");
             try {
-                await auth.request("/register", {
+                const result = await auth.request("/register", {
                     method: "POST",
                     skipSessionToken: true,
                     headers: { "Content-Type": "application/json" },
@@ -184,12 +185,14 @@
                     })
                 });
                 form.reset();
+                const needsConfirm = Boolean(result && result.requires_email_confirmation);
                 showMessage(
                     message,
-                    "Account created. If email confirmation is enabled, verify your address before signing in.",
+                    (result && result.message)
+                        || "Account created. If email confirmation is enabled, verify your address before signing in.",
                     "success"
                 );
-                window.setTimeout(() => window.location.assign("login.html"), 1800);
+                window.setTimeout(() => window.location.assign("login.html"), needsConfirm ? 3000 : 1800);
             } catch (error) {
                 showMessage(message, error.message);
             } finally {
@@ -209,6 +212,7 @@
         const queryParams = new URLSearchParams(window.location.search);
         let recoveryToken = hashParams.get("access_token") || queryParams.get("access_token");
         const type = hashParams.get("type") || queryParams.get("type");
+        const linkError = hashParams.get("error_description") || queryParams.get("error_description");
         button.dataset.defaultLabel = button.textContent.trim();
         if (recoveryToken && type === "recovery") {
             window.history.replaceState(null, document.title, window.location.pathname);
@@ -219,11 +223,20 @@
             form.hidden = true;
             if (requestForm) {
                 requestForm.hidden = false;
-                showMessage(
-                    message,
-                    "Enter your email address below to receive a password recovery link.",
-                    "notice"
-                );
+                if (linkError) {
+                    window.history.replaceState(null, document.title, window.location.pathname);
+                    showMessage(
+                        message,
+                        `Recovery link error: ${linkError}. Request a new link below.`,
+                        "error"
+                    );
+                } else {
+                    showMessage(
+                        message,
+                        "Enter your email address below to receive a password recovery link.",
+                        "notice"
+                    );
+                }
                 const reqBtn = document.getElementById("recoveryRequestButton");
                 const reqEmail = document.getElementById("recoveryRequestEmail");
                 const reqMsg = document.getElementById("recoveryRequestMessage");

@@ -267,10 +267,16 @@
                     </a>
                     <div class="success-summary" id="successPanel" hidden>
                         <div class="success-icon" aria-hidden="true">✓</div>
-                        <div>
-                            <span class="success-label">RECORDED IN RESQLINK</span>
-                            <strong id="successAlertId">Alert #—</strong>
+                        <div style="flex:1; min-width:0;">
+                            <span class="success-label">RECORDED IN RESQLINK · <span id="successStatus">ACTIVE</span></span>
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0;">
+                                <strong id="successAlertId" style="font-size:1.35rem; letter-spacing:0.04em; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">RQ-—</strong>
+                                <button type="button" class="rq-btn rq-btn-sm" id="copyAlertIdButton">Copy ID</button>
+                            </div>
                             <time id="successTimestamp"></time>
+                            <p style="margin:6px 0 0; font-size:12px; color:#ffd7ba;" id="successSafetyNotice">
+                                Notice: This alert is stored in ResQlink only and does NOT dispatch real emergency services.
+                            </p>
                             <div style="margin-top: 6px; font-size: 12px;">
                                 <a href="history.html">View in Emergency History →</a>
                             </div>

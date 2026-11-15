@@ -110,7 +110,7 @@
 
                     modalBody.replaceChildren(
                         el("div", { style: "display:grid; gap:10px; font-size:14px;" },
-                            el("div", {}, el("strong", { text: `Alert #${detail.id} — ${ui.categoryLabel(detail.category)}` })),
+                            el("div", {}, el("strong", { text: `${detail.alert_id || `Alert #${detail.id}`} — ${ui.categoryLabel(detail.category)}` })),
                             el("div", {},
                                 el("span", { className: `rq-pill sev-${detail.severity}`, text: `Severity ${detail.severity}/5 (${detail.label})` }),
                                 " ",
@@ -164,7 +164,7 @@
                         stack.append(
                             el("article", { className: "rq-card" },
                                 el("div", { style: "display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;" },
-                                    el("h2", { style: "margin:0; font-size:1.08rem;", text: `Alert #${alert.id} · ${ui.categoryLabel(alert.category)}` }),
+                                    el("h2", { style: "margin:0; font-size:1.08rem;", text: `${alert.alert_id || `Alert #${alert.id}`} · ${ui.categoryLabel(alert.category)}` }),
                                     el("div", { style: "display:flex; gap:6px; flex-wrap:wrap;" },
                                         el("span", { className: `rq-pill sev-${alert.severity}`, text: `Sev ${alert.severity}/5 · ${alert.label}` }),
                                         el("span", { className: `rq-pill status-${alert.status}`, text: alert.status })
@@ -192,6 +192,7 @@
                     });
                     listEl.append(stack);
                 } catch (error) {
+                    if (ui.redirectIfExpired(error, "history.html")) return;
                     listEl.replaceChildren();
                     ui.showBanner(banner, `Could not load emergency history: ${error.message}`, "error");
                 }
