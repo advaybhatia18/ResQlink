@@ -91,9 +91,17 @@ test("auth-pages.js allows all authenticated member and admin redirect targets",
 test("emergency-api.js reads window.RESQLINK_API_URL and sets idempotency header", async () => {
     const code = fs.readFileSync(path.join(__dirname, "..", "emergency-api.js"), "utf8");
     const calls = [];
+    const store = new Map([["resqlink_token", "tok-123"]]);
     const context = {
+        sessionStorage: {
+            getItem: key => (store.has(key) ? store.get(key) : null),
+            setItem: (key, val) => store.set(key, String(val)),
+            removeItem: key => store.delete(key),
+        },
         window: {
-            RESQLINK_API_URL: "https://resqlink-ji0g.onrender.com/",
+            RESQLINK_API_URL: "https://api.example.test/",
+            setTimeout,
+            clearTimeout,
             ResqlinkAuth: {
                 getAccessToken: () => "tok-123",
                 clearSession: () => {},
@@ -108,7 +116,7 @@ test("emergency-api.js reads window.RESQLINK_API_URL and sets idempotency header
                 ok: true,
                 status: 201,
                 headers: { get: () => "application/json" },
-                json: async () => ({ alert_id: 42, status: "ACTIVE", duplicate: false }),
+                json: async () => ({ alert_id: "RQ-20261115-A3K9M2", status: "ACTIVE", submission_status: "submitted", duplicate: false }),
             };
         },
     };
@@ -117,8 +125,60 @@ test("emergency-api.js reads window.RESQLINK_API_URL and sets idempotency header
         { severity: 4, category: "MEDICAL", requested_services: ["AMBULANCE_MEDICAL"] },
         "idem-key-1"
     );
-    assert.equal(res.alert_id, 42);
+    assert.equal(res.alert_id, "RQ-20261115-A3K9M2");
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "https://resqlink-ji0g.onrender.com/emergency");
+    assert.equal(calls[0].url, "https://api.example.test/emergency");
     assert.equal(calls[0].init.headers["Idempotency-Key"], "idem-key-1");
+});
+
+test("emergency-api.js reuses the same idempotency key on retry", async () => {
+    const code = fs.readFileSync(path.join(__dirname, "..", "emergency-api.js"), "utf8");
+    const store = new Map([["resqlink_token", "tok-123"]]);
+    const sentKeys = [];
+    let attempt = 0;
+    const context = {
+        sessionStorage: {
+            getItem: key => (store.has(key) ? store.get(key) : null),
+            setItem: (key, val) => store.set(key, String(val)),
+            removeItem: key => store.delete(key),
+        },
+        window: {
+            RESQLINK_API_URL: "https://api.example.test",
+            setTimeout,
+            clearTimeout,
+        },
+        AbortController,
+        setTimeout,
+        clearTimeout,
+        fetch: async (_url, init) => {
+            attempt += 1;
+            sentKeys.push(init.headers["Idempotency-Key"]);
+            if (attempt === 1) {
+                throw new Error("temporary network drop");
+            }
+            return {
+                ok: true,
+                status: 201,
+                headers: { get: () => "application/json" },
+                json: async () => ({
+                    alert_id: "RQ-20261115-B4C5D6",
+                    status: "ACTIVE",
+                    submission_status: "submitted",
+                    duplicate: false,
+                }),
+            };
+        },
+    };
+    vm.runInNewContext(code, context, { filename: "emergency-api.js" });
+    const sessionKey = "11111111-2222-4333-8444-555555555555";
+    await assert.rejects(
+        context.window.ResqlinkApi.submitEmergency({ severity: 5, category: "FIRE" }, sessionKey),
+        { code: "network" }
+    );
+    const retryRes = await context.window.ResqlinkApi.submitEmergency(
+        { severity: 5, category: "FIRE" },
+        sessionKey
+    );
+    assert.equal(retryRes.alert_id, "RQ-20261115-B4C5D6");
+    assert.deepEqual(sentKeys, [sessionKey, sessionKey]);
 });

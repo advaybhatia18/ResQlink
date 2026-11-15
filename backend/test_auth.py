@@ -120,10 +120,11 @@ class AuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 413)
 
     def test_cors_preflight_allows_only_configured_dashboard_origin(self):
+        origin = resqlink_app.allowed_origins[0]
         response = self.client.options(
             "/emergencies",
             headers={
-                "Origin": "https://advaybhatia18.github.io",
+                "Origin": origin,
                 "Access-Control-Request-Method": "GET",
                 "Access-Control-Request-Headers": "authorization",
             }
@@ -132,7 +133,7 @@ class AuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["access-control-allow-origin"],
-            "https://advaybhatia18.github.io"
+            origin
         )
         self.assertNotIn("access-control-allow-credentials", response.headers)
 
