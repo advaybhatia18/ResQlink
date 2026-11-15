@@ -787,6 +787,7 @@
                         </select>
                         <input class="field" id="dateFromFilter" type="date" aria-label="From date">
                         <input class="field" id="dateToFilter" type="date" aria-label="To date">
+                        <button class="button secondary" id="exportCsvButton" type="button">⬇ Export CSV</button>
                     </div>
                 </div>
                 <div class="alert-list" id="alerts" aria-live="polite">
@@ -915,6 +916,7 @@
             dateToFilter: document.getElementById("dateToFilter"),
             refreshButton: document.getElementById("refreshButton"),
             fitMapButton: document.getElementById("fitMapButton"),
+            exportCsvButton: document.getElementById("exportCsvButton"),
             refreshAuditButton: document.getElementById("refreshAuditButton"),
             auditLogBody: document.getElementById("auditLogBody"),
             adminStatus: document.getElementById("adminStatus"),
@@ -1067,17 +1069,30 @@
         }
 
         function renderBreakdowns(overview) {
-            const renderList = (target, entries) => {
+            const renderList = (target, entries, color) => {
                 target.replaceChildren();
                 if (!entries.length) {
                     target.append(el("span", { className: "section-caption", text: "No data yet" }));
                     return;
                 }
+                const maxVal = Math.max(1, ...entries.map(([, count]) => Number(count) || 0));
                 entries.forEach(([label, count]) => {
+                    const num = Number(count) || 0;
+                    const pct = Math.round((num / maxVal) * 100);
+                    const barTrack = el("div", {
+                        style: "height:6px; width:100%; background:rgba(148,163,184,0.16); border-radius:999px; overflow:hidden; margin-top:4px;"
+                    },
+                        el("div", {
+                            style: `height:100%; width:${pct}%; background:${color}; border-radius:999px; transition:width 0.25s ease;`
+                        })
+                    );
                     target.append(
-                        el("div", { className: "breakdown-row" },
-                            el("span", { text: label }),
-                            el("strong", { text: String(count) })
+                        el("div", { className: "breakdown-row", style: "flex-direction:column; align-items:stretch; gap:2px;" },
+                            el("div", { style: "display:flex; justify-content:space-between; gap:8px;" },
+                                el("span", { text: label }),
+                                el("strong", { text: String(num) })
+                            ),
+                            barTrack
                         )
                     );
                 });
@@ -1086,9 +1101,44 @@
             const sevEntries = Object.entries(overview.by_severity || {}).map(([k, v]) => [`Level ${k}`, v]);
             const catEntries = Object.entries(overview.by_category || {}).map(([k, v]) => [ui.categoryLabel(k), v]);
             const srvEntries = Object.entries(overview.by_service || {}).map(([k, v]) => [ui.serviceLabel(k), v]);
-            renderList(elements.severityBreakdown, sevEntries);
-            renderList(elements.categoryBreakdown, catEntries);
-            renderList(elements.serviceBreakdown, srvEntries);
+            renderList(elements.severityBreakdown, sevEntries, "#ff4d6d");
+            renderList(elements.categoryBreakdown, catEntries, "#ffbf69");
+            renderList(elements.serviceBreakdown, srvEntries, "#548aff");
+        }
+
+        function formatSessionDuration(seconds) {
+            const secs = Math.max(0, Math.floor(Number(seconds) || 0));
+            const h = Math.floor(secs / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            const s = secs % 60;
+            if (h > 0) return `${h}h ${m}m ${s}s`;
+            if (m > 0) return `${m}m ${s}s`;
+            return `${s}s`;
+        }
+
+        function getSessionInfo(alert) {
+            const startedRaw = alert.session_started_at || alert.created_at;
+            const startedMs = Date.parse(startedRaw || "");
+            const endedRaw = alert.session_ended_at;
+            if (endedRaw) {
+                const endedMs = Date.parse(endedRaw);
+                const secs = alert.session_duration_seconds != null
+                    ? Number(alert.session_duration_seconds)
+                    : (Number.isFinite(startedMs) && Number.isFinite(endedMs) ? (endedMs - startedMs) / 1000 : 0);
+                return {
+                    live: false,
+                    startedText: formatDate(startedRaw),
+                    endedText: formatDate(endedRaw),
+                    durationText: formatSessionDuration(secs),
+                };
+            }
+            const elapsedSecs = Number.isFinite(startedMs) ? (Date.now() - startedMs) / 1000 : 0;
+            return {
+                live: alert.status !== "RESOLVED",
+                startedText: formatDate(startedRaw),
+                endedText: null,
+                durationText: formatSessionDuration(elapsedSecs),
+            };
         }
 
         async function loadOverviewAndAudit() {
@@ -1137,8 +1187,20 @@
             });
         }
 
-        async function openEmergencyModal(alertId) {
+        let lastModalTrigger = null;
+
+        function closeEmergencyModal() {
+            elements.detailModal.hidden = true;
+            if (lastModalTrigger && typeof lastModalTrigger.focus === "function") {
+                lastModalTrigger.focus();
+                lastModalTrigger = null;
+            }
+        }
+
+        async function openEmergencyModal(alertId, triggerEl = null) {
+            if (triggerEl) lastModalTrigger = triggerEl;
             elements.detailModal.hidden = false;
+            elements.closeDetailBtn.focus();
             elements.detailBody.replaceChildren(el("p", { className: "section-caption", text: "Loading alert details…" }));
             try {
                 const detail = await auth.request(`/emergencies/${encodeURIComponent(alertId)}`, { method: "GET" });
@@ -1196,6 +1258,7 @@
                 });
 
                 const coords = getValidCoordinates(detail);
+                const sess = getSessionInfo(detail);
                 elements.detailBody.replaceChildren(
                     el("div", { style: "display:grid; gap:10px; font-size:13px;" },
                         el("div", {},
@@ -1207,7 +1270,10 @@
                             text: `Severity ${detail.severity}/5 (${detail.label}) · Priority ${detail.priority} · Reporter ${detail.reporter_ref || "legacy"}`
                         }),
                         el("div", {
-                            text: `Recommended: ${(detail.recommended_services || []).map(ui.serviceLabel).join(", ") || "None"} | Requested: ${(detail.requested_services || []).map(ui.serviceLabel).join(", ") || "None"}`
+                            text: `SOS Session: ${sess.live ? `Live (${sess.durationText})` : `Ended (${sess.durationText})`} · Started: ${sess.startedText}${sess.endedText ? ` · Ended: ${sess.endedText}` : ""}`
+                        }),
+                        el("div", {
+                            text: `Recommended: ${(detail.recommended_services || []).map(ui.serviceLabel).join(", ") || "None"} | Opted Support: ${(detail.requested_services || []).map(ui.serviceLabel).join(", ") || "None"}`
                         }),
                         coords
                             ? el("div", {
@@ -1281,7 +1347,10 @@
 
                 const time = document.createElement("p");
                 time.className = "alert-time";
-                time.textContent = `Reported: ${formatDate(alert.created_at)}`;
+                const sess = getSessionInfo(alert);
+                time.textContent = sess.endedText
+                    ? `Reported: ${formatDate(alert.created_at)} · SOS Session: ${sess.durationText} (Started ${sess.startedText} · Ended ${sess.endedText})`
+                    : `Reported: ${formatDate(alert.created_at)} · SOS Session: ${sess.live ? `Live ${sess.durationText}` : sess.durationText} (Started ${sess.startedText})`;
 
                 const actions = document.createElement("div");
                 actions.className = "alert-actions";
@@ -1310,7 +1379,7 @@
                 detailsBtn.className = "button secondary";
                 detailsBtn.type = "button";
                 detailsBtn.textContent = "Inspect & Manage";
-                detailsBtn.addEventListener("click", () => openEmergencyModal(alert.id));
+                detailsBtn.addEventListener("click", () => openEmergencyModal(alert.id, detailsBtn));
                 actions.appendChild(detailsBtn);
 
                 if (!isResolved) {
@@ -1541,7 +1610,43 @@
             searchTimer = window.setTimeout(() => loadAlerts(), SEARCH_DEBOUNCE_MS);
         }
 
+        function exportAlertsCsv() {
+            if (!allAlerts.length) return;
+            const headers = [
+                "alert_id", "id", "category", "severity", "priority", "status",
+                "requested_services", "session_started_at", "session_ended_at",
+                "session_duration_seconds", "latitude", "longitude", "created_at"
+            ];
+            const escapeCell = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
+            const rows = allAlerts.map(a => [
+                a.alert_id || "",
+                a.id,
+                a.category || "",
+                a.severity,
+                a.priority,
+                a.status,
+                (a.requested_services || []).join("|"),
+                a.session_started_at || a.created_at || "",
+                a.session_ended_at || "",
+                a.session_duration_seconds ?? "",
+                a.latitude ?? "",
+                a.longitude ?? "",
+                a.created_at || ""
+            ].map(escapeCell).join(","));
+            const csv = [headers.join(","), ...rows].join("\n");
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `resqlink-emergencies-${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
         elements.refreshButton.addEventListener("click", () => loadAlerts(true));
+        if (elements.exportCsvButton) elements.exportCsvButton.addEventListener("click", exportAlertsCsv);
         elements.refreshAuditButton.addEventListener("click", loadOverviewAndAudit);
         elements.fitMapButton.addEventListener("click", fitAllMarkers);
         elements.search.addEventListener("input", scheduleFilteredLoad);
@@ -1552,9 +1657,14 @@
         elements.dateFromFilter.addEventListener("change", scheduleFilteredLoad);
         elements.dateToFilter.addEventListener("change", scheduleFilteredLoad);
         elements.logoutButton.addEventListener("click", signOut);
-        elements.closeDetailBtn.addEventListener("click", () => { elements.detailModal.hidden = true; });
+        elements.closeDetailBtn.addEventListener("click", closeEmergencyModal);
         elements.detailModal.addEventListener("click", event => {
-            if (event.target === elements.detailModal) elements.detailModal.hidden = true;
+            if (event.target === elements.detailModal) closeEmergencyModal();
+        });
+        document.addEventListener("keydown", event => {
+            if (event.key === "Escape" && !elements.detailModal.hidden) {
+                closeEmergencyModal();
+            }
         });
 
         document.querySelectorAll(".nav-link").forEach(link => {

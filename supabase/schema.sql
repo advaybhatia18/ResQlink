@@ -54,6 +54,9 @@ create table if not exists public.emergencies (
     updated_at timestamptz not null default now(),
     acknowledged_at timestamptz,
     resolved_at timestamptz,
+    session_started_at timestamptz not null default now(),
+    session_ended_at timestamptz,
+    session_duration_seconds integer check (session_duration_seconds is null or session_duration_seconds >= 0),
     user_id uuid references public.profiles (id) on delete cascade,
     idempotency_key text,
     latitude double precision,
@@ -97,6 +100,17 @@ alter table public.emergencies
     alter column idempotency_key type text using idempotency_key::text;
 alter table public.emergencies
     add column if not exists location_accuracy_m double precision;
+alter table public.emergencies
+    add column if not exists session_started_at timestamptz;
+update public.emergencies
+set session_started_at = coalesce(created_at, now())
+where session_started_at is null;
+alter table public.emergencies
+    alter column session_started_at set default now();
+alter table public.emergencies
+    add column if not exists session_ended_at timestamptz;
+alter table public.emergencies
+    add column if not exists session_duration_seconds integer;
 alter table public.emergencies
     alter column latitude drop not null;
 alter table public.emergencies
@@ -227,6 +241,10 @@ comment on column public.emergencies.location_accuracy_m is
 
 create index if not exists emergencies_user_id_idx
     on public.emergencies (user_id);
+create index if not exists emergencies_status_created_at_idx
+    on public.emergencies (status, created_at desc);
+create index if not exists emergencies_user_created_at_idx
+    on public.emergencies (user_id, created_at desc);
 
 alter table public.profiles enable row level security;
 alter table public.emergencies enable row level security;
@@ -539,3 +557,29 @@ create policy "Admins read simulator runs"
               and p.role = 'ADMIN'
         )
     );
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+    new.updated_at := now();
+    return new;
+end;
+$$;
+
+drop trigger if exists set_profiles_updated_at on public.profiles;
+create trigger set_profiles_updated_at
+    before update on public.profiles
+    for each row execute function public.set_updated_at();
+
+drop trigger if exists set_emergencies_updated_at on public.emergencies;
+create trigger set_emergencies_updated_at
+    before update on public.emergencies
+    for each row execute function public.set_updated_at();
+
+drop trigger if exists set_emergency_contacts_updated_at on public.emergency_contacts;
+create trigger set_emergency_contacts_updated_at
+    before update on public.emergency_contacts
+    for each row execute function public.set_updated_at();

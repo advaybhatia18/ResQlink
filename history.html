@@ -88,8 +88,31 @@
             const modal = document.getElementById("historyDetailModal");
             const modalBody = document.getElementById("detailModalBody");
 
-            async function openDetail(alertId) {
+            const closeBtn = document.getElementById("closeDetailModalBtn");
+            let lastTriggerBtn = null;
+
+            function formatSessionDuration(seconds) {
+                const secs = Math.max(0, Math.floor(Number(seconds) || 0));
+                const h = Math.floor(secs / 3600);
+                const m = Math.floor((secs % 3600) / 60);
+                const s = secs % 60;
+                if (h > 0) return `${h}h ${m}m ${s}s`;
+                if (m > 0) return `${m}m ${s}s`;
+                return `${s}s`;
+            }
+
+            function closeModal() {
+                modal.hidden = true;
+                if (lastTriggerBtn && typeof lastTriggerBtn.focus === "function") {
+                    lastTriggerBtn.focus();
+                    lastTriggerBtn = null;
+                }
+            }
+
+            async function openDetail(alertId, triggerBtn = null) {
+                if (triggerBtn) lastTriggerBtn = triggerBtn;
                 modal.hidden = false;
+                closeBtn.focus();
                 modalBody.replaceChildren(el("p", { className: "rq-muted", text: "Loading timeline and details…" }));
                 try {
                     const detail = await auth.request(`/emergencies/${encodeURIComponent(alertId)}`, {
@@ -132,6 +155,9 @@
                                 el("span", { className: `rq-pill status-${detail.status}`, text: detail.status })
                             ),
                             el("div", { text: `Priority score: ${detail.priority}` }),
+                            el("div", {
+                                text: `SOS Session: Started ${ui.formatDate(detail.session_started_at || detail.created_at)}${detail.session_ended_at ? ` · Ended ${ui.formatDate(detail.session_ended_at)} (${formatSessionDuration(detail.session_duration_seconds)})` : " · Live / Ongoing"}`
+                            }),
                             el("div", { text: `Recommended services: ${recommended}` }),
                             el("div", { text: `Requested services: ${requested}` }),
                             detail.notes ? el("div", { text: `Your note: ${detail.notes}` }) : null,
@@ -183,7 +209,7 @@
                             className: "rq-btn rq-btn-sm rq-btn-primary",
                             text: "View Timeline & Details"
                         });
-                        detailBtn.addEventListener("click", () => openDetail(alert.id));
+                        detailBtn.addEventListener("click", () => openDetail(alert.id, detailBtn));
 
                         stack.append(
                             el("article", { className: "rq-card" },
@@ -195,7 +221,7 @@
                                     )
                                 ),
                                 el("p", { className: "rq-muted", style: "margin:8px 0; font-size:13px;" },
-                                    `Reported: ${ui.formatDate(alert.created_at)} · Priority ${alert.priority}`
+                                    `Reported: ${ui.formatDate(alert.created_at)} · Priority ${alert.priority} · ${alert.session_ended_at ? `Session ${formatSessionDuration(alert.session_duration_seconds)}` : "SOS Session Active"}`
                                 ),
                                 el("p", { style: "margin:4px 0; font-size:13px;" },
                                     `Requested services: ${requested} (Recommended: ${recommended})`
@@ -222,8 +248,11 @@
                 }
             }
 
-            document.getElementById("closeDetailModalBtn").addEventListener("click", () => { modal.hidden = true; });
-            modal.addEventListener("click", event => { if (event.target === modal) modal.hidden = true; });
+            closeBtn.addEventListener("click", closeModal);
+            modal.addEventListener("click", event => { if (event.target === modal) closeModal(); });
+            document.addEventListener("keydown", event => {
+                if (event.key === "Escape" && !modal.hidden) closeModal();
+            });
             document.getElementById("historyRefreshBtn").addEventListener("click", loadHistory);
             statusFilter.addEventListener("change", loadHistory);
             categoryFilter.addEventListener("change", loadHistory);

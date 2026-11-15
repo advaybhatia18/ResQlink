@@ -1,0 +1,9 @@
+{
+  "name": "ResQlink Emergency Console",
+  "short_name": "ResQlink",
+  "start_url": "./sos.html",
+  "display": "standalone",
+  "background_color": "#070d17",
+  "theme_color": "#0a111c",
+  "description": "Emergency reporting, triage classification, and timed SOS session console."
+}

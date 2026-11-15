@@ -205,6 +205,75 @@ class AlertIdAndIdempotencyTests(unittest.TestCase):
             )
         self.assertEqual(limited.status_code, 429)
 
+    def test_schema_includes_sos_session_columns_and_indexes(self):
+        schema_sql = (ROOT / "supabase" / "schema.sql").read_text(encoding="utf-8").lower()
+        for token in (
+            "session_started_at",
+            "session_ended_at",
+            "session_duration_seconds",
+            "emergencies_status_created_at_idx",
+            "emergencies_user_created_at_idx",
+            "set_updated_at",
+        ):
+            self.assertIn(token, schema_sql, f"schema.sql missing {token}")
+
+    def test_active_sos_session_and_end_session_endpoints(self):
+        user_id = "11111111-1111-4111-8111-111111111111"
+        active_session = {
+            "id": 42,
+            "alert_id": "RQ-20261116-ABCD23",
+            "severity": 4,
+            "label": "VERY HIGH",
+            "priority": 80,
+            "status": "ACTIVE",
+            "requested_services": ["POLICE", "AMBULANCE_MEDICAL"],
+            "session_started_at": "2026-11-16T00:00:00+00:00",
+            "session_ended_at": None,
+            "session_duration_seconds": None,
+            "created_at": "2026-11-16T00:00:00+00:00",
+        }
+        ended_session = {
+            "id": 42,
+            "alert_id": "RQ-20261116-ABCD23",
+            "status": "ACTIVE",
+            "requested_services": ["POLICE", "AMBULANCE_MEDICAL"],
+            "session_started_at": "2026-11-16T00:00:00+00:00",
+            "session_ended_at": "2026-11-16T00:02:05+00:00",
+            "session_duration_seconds": 125,
+            "already_ended": False,
+        }
+        resqlink_app.app.dependency_overrides[resqlink_app.get_authenticated_user] = (
+            lambda: {"id": user_id, "email": "u@example.com", "role": "USER"}
+        )
+        try:
+            with (
+                patch("app.get_active_sos_session", return_value=active_session),
+                patch("app.end_sos_session", return_value=ended_session) as end_mock,
+            ):
+                active_res = self.client.get(
+                    "/emergencies/me/active-session",
+                    headers={"Authorization": "Bearer user-token"},
+                )
+                self.assertEqual(active_res.status_code, 200)
+                self.assertEqual(active_res.json()["session"]["alert_id"], "RQ-20261116-ABCD23")
+
+                end_res = self.client.post(
+                    "/emergencies/42/end-session",
+                    headers={"Authorization": "Bearer user-token"},
+                    json={"note": "Reached safe location"},
+                )
+                self.assertEqual(end_res.status_code, 200)
+                self.assertEqual(end_res.json()["session_duration_seconds"], 125)
+                self.assertEqual(end_res.json()["requested_services"], ["POLICE", "AMBULANCE_MEDICAL"])
+                end_mock.assert_called_once_with(
+                    42,
+                    user_id,
+                    owner_filter=user_id,
+                    note="Reached safe location",
+                )
+        finally:
+            resqlink_app.app.dependency_overrides.pop(resqlink_app.get_authenticated_user, None)
+
 
 if __name__ == "__main__":
     unittest.main()

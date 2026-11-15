@@ -56,13 +56,25 @@
         mapOverlay: document.getElementById("mapOverlay"),
         mapMessage: document.getElementById("mapMessage"),
         sosContactsStatus: document.getElementById("sosContactsStatus"),
-        sosContactsList: document.getElementById("sosContactsList")
+        sosContactsList: document.getElementById("sosContactsList"),
+        sosSessionPanel: document.getElementById("sosSessionPanel"),
+        sessionStateBadge: document.getElementById("sessionStateBadge"),
+        sessionAlertCode: document.getElementById("sessionAlertCode"),
+        sessionElapsedTimer: document.getElementById("sessionElapsedTimer"),
+        sessionServicesText: document.getElementById("sessionServicesText"),
+        sessionStartText: document.getElementById("sessionStartText"),
+        sessionEndRow: document.getElementById("sessionEndRow"),
+        sessionEndText: document.getElementById("sessionEndText"),
+        sessionDurationText: document.getElementById("sessionDurationText"),
+        endSosSessionButton: document.getElementById("endSosSessionButton")
     };
 
     let currentUser = null;
     let map = null;
     let locationMarker = null;
     let accuracyCircle = null;
+    let activeSosSession = null;
+    let sessionTimerInterval = null;
     let approximateLocation = null;
     let pendingAttempt = null;
     let pendingAttemptCorrupt = false;
@@ -588,6 +600,7 @@
             elements.signInLink.hidden = true;
             elements.button.disabled = false;
             loadSosContacts();
+            loadActiveSosSession();
 
             if (pendingAttemptCorrupt) {
                 elements.severity.disabled = true;
@@ -681,6 +694,18 @@
             }
             elements.successTimestamp.dateTime = submittedAt.toISOString();
             elements.successTimestamp.textContent = `Recorded ${submittedAt.toLocaleString()}`;
+            renderSosSession({
+                id: result.id,
+                alert_id: displayAlertId,
+                status: result.status || "ACTIVE",
+                requested_services: result.requested_services
+                    || (result.classification && result.classification.requested_services)
+                    || attempt.payload.requested_services
+                    || [],
+                session_started_at: result.session_started_at || result.created_at || submittedAt.toISOString(),
+                session_ended_at: result.session_ended_at || null,
+                session_duration_seconds: result.session_duration_seconds ?? null,
+            });
             try {
                 if (typeof BroadcastChannel === "function") {
                     const ch = new BroadcastChannel("resqlink-emergencies");
@@ -932,6 +957,158 @@
     elements.severity.addEventListener("change", () => scheduleClassificationRefresh(true));
     if (elements.category) {
         elements.category.addEventListener("change", () => scheduleClassificationRefresh(true));
+    }
+
+    function formatElapsedClock(totalSeconds) {
+        const secs = Math.max(0, Math.floor(totalSeconds));
+        const hours = String(Math.floor(secs / 3600)).padStart(2, "0");
+        const mins = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
+        const rem = String(secs % 60).padStart(2, "0");
+        return `${hours}:${mins}:${rem}`;
+    }
+
+    function formatDurationWords(totalSeconds) {
+        const secs = Math.max(0, Math.floor(totalSeconds));
+        const hours = Math.floor(secs / 3600);
+        const mins = Math.floor((secs % 3600) / 60);
+        const rem = secs % 60;
+        if (hours > 0) return `${hours}h ${mins}m ${rem}s`;
+        if (mins > 0) return `${mins}m ${rem}s`;
+        return `${rem}s`;
+    }
+
+    function stopSessionTimer() {
+        if (sessionTimerInterval !== null) {
+            window.clearInterval(sessionTimerInterval);
+            sessionTimerInterval = null;
+        }
+    }
+
+    function renderSosSession(session) {
+        if (!elements.sosSessionPanel || !session || !session.id) return;
+        activeSosSession = session;
+        stopSessionTimer();
+        elements.sosSessionPanel.hidden = false;
+        elements.sessionAlertCode.textContent = session.alert_id || `Alert #${session.id}`;
+
+        const ui = window.ResqlinkUI;
+        const serviceNames = (session.requested_services || []).map(code =>
+            ui && typeof ui.serviceLabel === "function" ? ui.serviceLabel(code) : code
+        );
+        elements.sessionServicesText.textContent = serviceNames.length
+            ? serviceNames.join(", ")
+            : "No specific support selected";
+
+        const startedAtMs = Date.parse(session.session_started_at || session.created_at || "");
+        const validStart = Number.isFinite(startedAtMs) ? startedAtMs : Date.now();
+        elements.sessionStartText.textContent = new Date(validStart).toLocaleString();
+
+        if (session.session_ended_at) {
+            const endedMs = Date.parse(session.session_ended_at);
+            const durationSecs = session.session_duration_seconds != null
+                ? Number(session.session_duration_seconds)
+                : Math.max(0, Math.floor(((Number.isFinite(endedMs) ? endedMs : Date.now()) - validStart) / 1000));
+            elements.sessionStateBadge.textContent = "SESSION ENDED";
+            elements.sessionStateBadge.className = "rq-pill status-RESOLVED";
+            elements.sessionElapsedTimer.textContent = formatElapsedClock(durationSecs);
+            elements.sessionElapsedTimer.style.color = "#93c5fd";
+            elements.sessionEndRow.hidden = false;
+            elements.sessionEndText.textContent = Number.isFinite(endedMs)
+                ? new Date(endedMs).toLocaleString()
+                : "Ended";
+            elements.sessionDurationText.textContent = `Duration: ${formatDurationWords(durationSecs)}`;
+            elements.endSosSessionButton.disabled = true;
+            elements.endSosSessionButton.hidden = true;
+        } else {
+            elements.sessionStateBadge.textContent = "LIVE SOS SESSION";
+            elements.sessionStateBadge.className = "rq-pill sev-5";
+            elements.sessionElapsedTimer.style.color = "#38dfac";
+            elements.sessionEndRow.hidden = true;
+            elements.endSosSessionButton.hidden = false;
+            elements.endSosSessionButton.disabled = false;
+            elements.endSosSessionButton.textContent = "End SOS Session";
+            const updateTick = () => {
+                const elapsed = Math.max(0, Math.floor((Date.now() - validStart) / 1000));
+                elements.sessionElapsedTimer.textContent = formatElapsedClock(elapsed);
+            };
+            updateTick();
+            sessionTimerInterval = window.setInterval(updateTick, 1000);
+        }
+    }
+
+    async function loadActiveSosSession() {
+        if (!window.ResqlinkAuth) return;
+        try {
+            const data = await window.ResqlinkAuth.request("/emergencies/me/active-session", {
+                method: "GET",
+                cache: "no-store"
+            });
+            if (data && data.session) {
+                renderSosSession(data.session);
+            }
+        } catch (_err) {
+            // Non-fatal if active session check fails
+        }
+    }
+
+    async function endActiveSosSession() {
+        if (!activeSosSession || !activeSosSession.id || !window.ResqlinkAuth) return;
+        elements.endSosSessionButton.disabled = true;
+        elements.endSosSessionButton.textContent = "Ending session…";
+        try {
+            const ended = await window.ResqlinkAuth.request(
+                `/emergencies/${encodeURIComponent(activeSosSession.id)}/end-session`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({})
+                }
+            );
+            renderSosSession({
+                ...activeSosSession,
+                ...ended,
+                session_ended_at: ended.session_ended_at || new Date().toISOString(),
+            });
+            try {
+                if (typeof BroadcastChannel === "function") {
+                    const ch = new BroadcastChannel("resqlink-emergencies");
+                    ch.postMessage({ type: "emergency-updated", alert_id: ended.alert_id });
+                    ch.close();
+                }
+                localStorage.setItem("resqlink_emergency_sync", String(Date.now()));
+            } catch (_syncErr) {
+                // ignore sync errors
+            }
+        } catch (error) {
+            elements.endSosSessionButton.disabled = false;
+            elements.endSosSessionButton.textContent = "End SOS Session";
+            setProgress("error", `Could not end SOS session: ${error.message}`, "SESSION ERROR");
+        }
+    }
+
+    if (elements.endSosSessionButton) {
+        elements.endSosSessionButton.addEventListener("click", endActiveSosSession);
+    }
+
+    window.addEventListener("offline", () => {
+        setProgress(
+            "error",
+            "You appear offline. Any pending SOS alert retry key is preserved locally until connection returns.",
+            "OFFLINE"
+        );
+    });
+    window.addEventListener("online", () => {
+        if (pendingAttempt && !flowBusy) {
+            setProgress(
+                "ready",
+                "Connection restored. Click SOS to retry your saved alert safely.",
+                "ONLINE"
+            );
+        }
+    });
+
+    if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("./sw.js").catch(() => undefined);
     }
 
     initializeMap();
