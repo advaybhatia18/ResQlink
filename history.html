@@ -163,7 +163,13 @@
                     const alerts = data.emergencies || [];
                     listEl.replaceChildren();
                     if (alerts.length === 0) {
-                        listEl.append(el("div", { className: "rq-empty", text: "No emergency alerts match your current filters." }));
+                        const hasFilter = Boolean(statusFilter.value || categoryFilter.value);
+                        listEl.append(el("div", {
+                            className: "rq-empty",
+                            text: hasFilter
+                                ? "No emergency alerts match your current filters."
+                                : "You have not submitted any emergency alerts yet."
+                        }));
                         return;
                     }
                     const stack = el("div", { style: "display:grid; gap:12px;" });
