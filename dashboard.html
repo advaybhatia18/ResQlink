@@ -1092,19 +1092,21 @@
         }
 
         async function loadOverviewAndAudit() {
-            try {
-                const [overview, audit] = await Promise.all([
-                    auth.request("/admin/overview", { method: "GET", cache: "no-store" }),
-                    auth.request("/admin/audit-logs?limit=50", { method: "GET", cache: "no-store" }),
-                ]);
-                renderBreakdowns(overview);
-                renderAuditLogs(audit.logs || []);
-            } catch (error) {
+            const [overviewRes, auditRes] = await Promise.allSettled([
+                auth.request("/admin/overview", { method: "GET", cache: "no-store" }),
+                auth.request("/admin/audit-logs?limit=50", { method: "GET", cache: "no-store" }),
+            ]);
+            if (overviewRes.status === "fulfilled") {
+                renderBreakdowns(overviewRes.value);
+            }
+            if (auditRes.status === "fulfilled") {
+                renderAuditLogs(auditRes.value.logs || []);
+            } else {
                 elements.auditLogBody.replaceChildren(
                     el("tr", {}, el("td", {
                         colSpan: 5,
                         className: "section-caption",
-                        text: `Could not load audit logs: ${error.message}`
+                        text: `Could not load audit logs: ${auditRes.reason ? auditRes.reason.message : "Unknown error"}`
                     }))
                 );
             }

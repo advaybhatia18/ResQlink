@@ -119,6 +119,15 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request, exc: Exception):
+    LOGGER.exception("Unhandled server error: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
 class EmergencyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

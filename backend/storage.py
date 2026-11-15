@@ -2,8 +2,8 @@ import math
 import os
 import re
 import secrets
+import threading
 from datetime import datetime, timezone
-from functools import lru_cache
 from uuid import UUID
 
 import httpx
@@ -50,9 +50,19 @@ def _supabase_anon_key() -> str:
     return value
 
 
-@lru_cache(maxsize=1)
+_db_client_local = threading.local()
+
+
 def get_database_client() -> Client:
-    return create_client(_supabase_url(), _supabase_service_role_key())
+    url = _supabase_url()
+    key = _supabase_service_role_key()
+    cached = getattr(_db_client_local, "client", None)
+    cached_creds = getattr(_db_client_local, "creds", None)
+    if cached is None or cached_creds != (url, key):
+        cached = create_client(url, key)
+        _db_client_local.client = cached
+        _db_client_local.creds = (url, key)
+    return cached
 
 
 def get_auth_client() -> Client:
