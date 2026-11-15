@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from pathlib import Path
@@ -37,8 +38,10 @@ from simulator import (
     transition_simulation_run,
 )
 from storage import (
+    ensure_user_profile,
     get_admin_audit_logs,
     get_alert_detail,
+    get_alert_detail_by_alert_id,
     get_alerts,
     get_auth_client,
     get_user_profile,
@@ -61,25 +64,49 @@ app = FastAPI(
     version="1.0.0"
 )
 
+LOGGER = logging.getLogger("resqlink.app")
+DEFAULT_FRONTEND_ORIGINS = (
+    "https://advaybhatia18.github.io,https://aksh.is-a.dev,http://127.0.0.1:5500,http://localhost:5500"
+)
+
+
+def _parse_frontend_origins(raw_origins: str) -> list[str]:
+    valid: list[str] = []
+    for entry in raw_origins.split(","):
+        candidate = entry.strip()
+        if not candidate:
+            continue
+        cleaned = candidate.rstrip("/")
+        parsed = urlparse(cleaned)
+        if (
+            cleaned == "*"
+            or parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or any(ch.isspace() for ch in cleaned)
+        ):
+            LOGGER.warning(
+                "Ignoring malformed FRONTEND_ORIGINS entry %r: use scheme+host+port only (no path, query, wildcard, or trailing slash).",
+                candidate,
+            )
+            continue
+        if cleaned not in valid:
+            valid.append(cleaned)
+    return valid
+
+
 security = HTTPBearer(auto_error=False)
-allowed_origins = [
-    origin.strip().rstrip("/")
-    for origin in os.getenv(
-        "FRONTEND_ORIGINS",
-        "https://advaybhatia18.github.io"
-    ).split(",")
-    if origin.strip()
-]
-if not allowed_origins or any(
-    origin == "*"
-    or urlparse(origin).scheme not in {"http", "https"}
-    or not urlparse(origin).netloc
-    or urlparse(origin).path not in {"", "/"}
-    or urlparse(origin).query
-    or urlparse(origin).fragment
-    for origin in allowed_origins
-):
-    raise RuntimeError("FRONTEND_ORIGINS must contain explicit HTTP(S) origins")
+allowed_origins = _parse_frontend_origins(
+    os.getenv("FRONTEND_ORIGINS", DEFAULT_FRONTEND_ORIGINS)
+)
+if not allowed_origins:
+    LOGGER.warning(
+        "FRONTEND_ORIGINS contained no valid origins; falling back to %s",
+        DEFAULT_FRONTEND_ORIGINS,
+    )
+    allowed_origins = _parse_frontend_origins(DEFAULT_FRONTEND_ORIGINS)
 
 # Register first so CORS wraps even rate-limit and request-size error responses.
 app.add_middleware(RequestControlsMiddleware)
@@ -240,7 +267,7 @@ class SimulatorRunRequest(BaseModel):
 def get_authenticated_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security)
 ):
-    if credentials is None:
+    if credentials is None or not credentials.credentials.strip():
         raise HTTPException(
             status_code=401,
             detail="Authentication required",
@@ -373,11 +400,12 @@ def create_emergency(
     if request.notes and request.notes.strip():
         result["notes"] = request.notes.strip()
 
-    alert_id, duplicate, status = save_alert(
+    internal_id, duplicate, status = save_alert(
         result,
         current_user["id"],
         idempotency_key
     )
+    alert_id = result.get("alert_id") or internal_id
     return JSONResponse(
         status_code=200 if duplicate else 201,
         content={
@@ -386,12 +414,18 @@ def create_emergency(
                 if duplicate
                 else "Alert recorded in the ResQlink demo."
             ),
+            "id": internal_id,
             "alert_id": alert_id,
             "status": status,
             "submission_status": (
                 "already_submitted" if duplicate else "submitted"
             ),
             "duplicate": duplicate,
+            "priority": result["priority"],
+            "severity": result["severity"],
+            "label": result["label"],
+            "recommended_services": classification["recommended_services"],
+            "created_at": result.get("created_at"),
             "classification": {
                 "category": classification["category"],
                 "category_name": classification["category_name"],
@@ -452,6 +486,7 @@ def _filter_alerts(
                 str(alert.get(field, ""))
                 for field in (
                     "id",
+                    "alert_id",
                     "label",
                     "severity",
                     "priority",
@@ -510,6 +545,15 @@ def list_my_emergencies(
         "count": len(paged),
         "emergencies": paged,
     }
+
+
+@app.get("/emergencies/by-alert-id/{alert_id}")
+def get_emergency_by_alert_id(
+    alert_id: str,
+    current_user: dict = Depends(get_authenticated_user),
+):
+    owner_filter = None if current_user["role"] == "ADMIN" else current_user["id"]
+    return get_alert_detail_by_alert_id(alert_id, user_id=owner_filter)
 
 
 @app.get("/emergencies/{alert_id}")
@@ -627,7 +671,15 @@ def register_user(request: RegisterRequest):
         if error.code == "user_already_exists" or error.status == 422:
             raise HTTPException(
                 status_code=409,
-                detail="An account with this email already exists"
+                detail="An account with this email already exists. Try signing in instead."
+            ) from error
+        if error.status == 429 or error.code in {
+            "over_request_rate_limit",
+            "over_email_send_rate_limit",
+        }:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many registration attempts. Please wait a moment and try again."
             ) from error
         if error.status < 500:
             raise HTTPException(
@@ -638,6 +690,11 @@ def register_user(request: RegisterRequest):
             status_code=503,
             detail="Could not create the Supabase account"
         ) from error
+    except HTTPError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Registration service is temporarily unavailable. Please try again."
+        ) from error
 
     if not response.user:
         raise HTTPException(
@@ -645,12 +702,18 @@ def register_user(request: RegisterRequest):
             detail="Supabase did not return the created user"
         )
 
+    requires_confirmation = getattr(response, "session", None) is None
     return {
-        "message": "Account created successfully",
+        "message": (
+            "Account created. Check your email inbox to confirm your address before signing in."
+            if requires_confirmation
+            else "Account created successfully"
+        ),
         "user_id": response.user.id,
         "name": name,
         "email": response.user.email,
-        "role": "USER"
+        "role": "USER",
+        "requires_email_confirmation": requires_confirmation,
     }
 
 
@@ -664,6 +727,19 @@ def login_user(request: LoginRequest):
             "password": request.password
         })
     except AuthApiError as error:
+        if error.status == 429 or error.code in {
+            "over_request_rate_limit",
+            "over_email_send_rate_limit",
+        }:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many sign-in attempts. Please wait a moment and try again."
+            ) from error
+        if error.code == "email_not_confirmed" or "email not confirmed" in (error.message or "").lower():
+            raise HTTPException(
+                status_code=401,
+                detail="Please confirm your email address before signing in. Check your inbox for the verification link."
+            ) from error
         if error.status in (400, 401, 403):
             raise HTTPException(
                 status_code=401,
@@ -673,6 +749,11 @@ def login_user(request: LoginRequest):
             status_code=503,
             detail="Could not sign in with Supabase"
         ) from error
+    except HTTPError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service is temporarily unavailable. Please try again."
+        ) from error
 
     if not response.user or not response.session:
         raise HTTPException(
@@ -681,6 +762,12 @@ def login_user(request: LoginRequest):
         )
 
     profile = get_user_profile(response.user.id)
+    if not profile:
+        metadata = getattr(response.user, "user_metadata", None) or {}
+        profile = ensure_user_profile(
+            response.user.id,
+            metadata.get("name") if isinstance(metadata, dict) else None,
+        )
     if not profile:
         raise HTTPException(
             status_code=503,
@@ -808,7 +895,7 @@ def update_password(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     _current_user=Depends(get_authenticated_user)
 ):
-    if credentials is None:
+    if credentials is None or not credentials.credentials.strip():
         raise HTTPException(
             status_code=401,
             detail="Authentication required",
@@ -823,7 +910,7 @@ def logout(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     _current_user=Depends(get_authenticated_user)
 ):
-    if credentials is None:
+    if credentials is None or not credentials.credentials.strip():
         raise HTTPException(
             status_code=401,
             detail="Authentication required",
