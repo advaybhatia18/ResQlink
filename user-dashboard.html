@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#070d17">
     <title>ResQlink | Member Dashboard</title>
+    <link rel="preconnect" href="https://resqlink-ji0g.onrender.com" crossorigin>
     <link rel="stylesheet" href="theme.css">
 </head>
 <body class="rq-body">
@@ -26,7 +27,21 @@
 
         <div id="userDashBanner" class="rq-banner" hidden role="status" aria-live="polite"></div>
 
-        <section class="rq-grid-3" style="margin-bottom: 20px;">
+        <section id="adminSpaceSection" class="rq-card" style="margin-bottom: 22px; border-color: rgba(255, 191, 105, 0.45); background: linear-gradient(145deg, rgba(255, 191, 105, 0.09), rgba(16, 27, 45, 0.92));" hidden>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
+                <div>
+                    <p class="rq-kicker" style="color: var(--rq-amber);">RESPONDER / ADMIN WORKSPACE</p>
+                    <h2 class="rq-card-title" style="margin:0;">Administrator Tools</h2>
+                    <p class="rq-muted" style="margin:4px 0 0; font-size:13.5px;">Prioritized access to live incident dispatch, user info inspection, and the isolated simulator.</p>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <a class="rq-btn rq-btn-primary" href="dashboard.html">Open Admin Command Center</a>
+                    <a class="rq-btn" href="simulator.html">Launch Simulator</a>
+                </div>
+            </div>
+        </section>
+
+        <section class="rq-grid-3" style="margin-bottom: 22px;">
             <article class="rq-card">
                 <p class="rq-kicker">SIGNED-IN PROFILE</p>
                 <h2 class="rq-card-title" id="dashUserName">Loading…</h2>
@@ -101,6 +116,7 @@
                 document.getElementById("dashUserRole").textContent = user.role;
                 if (user.role === "ADMIN") {
                     document.getElementById("dashAdminBtn").hidden = false;
+                    document.getElementById("adminSpaceSection").hidden = false;
                 }
 
                 document.getElementById("dashLogoutBtn").addEventListener("click", async () => {

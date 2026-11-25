@@ -74,20 +74,36 @@
         container.textContent = text;
     }
 
-    function buildHeader(activePage) {
+    function buildHeader(activePage, role = "GUEST") {
         const header = document.getElementById("rqHeader");
         if (!header) return null;
 
-        const links = [
-            { id: "index", href: "index.html", label: "Home" },
-            { id: "sos", href: "sos.html", label: "SOS", extraClass: "sos-nav" },
-            { id: "user-dashboard", href: "user-dashboard.html", label: "Dashboard" },
-            { id: "history", href: "history.html", label: "History" },
-            { id: "contacts", href: "contacts.html", label: "Contacts" },
-            { id: "settings", href: "settings.html", label: "Settings" },
-            { id: "dashboard", href: "dashboard.html", label: "Admin Center", adminOnly: true },
-            { id: "simulator", href: "simulator.html", label: "Simulator", adminOnly: true },
-        ];
+        const isAdmin = role === "ADMIN";
+        const isSignedIn = role === "ADMIN" || role === "USER";
+        const links = isAdmin
+            ? [
+                { id: "dashboard", href: "dashboard.html", label: "Admin Center", adminOnly: true },
+                { id: "simulator", href: "simulator.html", label: "Simulator", adminOnly: true },
+                { id: "sos", href: "sos.html", label: "SOS", extraClass: "sos-nav" },
+                { id: "user-dashboard", href: "user-dashboard.html", label: "Member Hub" },
+                { id: "history", href: "history.html", label: "History" },
+                { id: "contacts", href: "contacts.html", label: "Contacts" },
+                { id: "settings", href: "settings.html", label: "Settings" },
+                { id: "index", href: "index.html", label: "Home" },
+            ]
+            : isSignedIn
+                ? [
+                    { id: "sos", href: "sos.html", label: "SOS", extraClass: "sos-nav" },
+                    { id: "user-dashboard", href: "user-dashboard.html", label: "Dashboard" },
+                    { id: "history", href: "history.html", label: "History" },
+                    { id: "contacts", href: "contacts.html", label: "Contacts" },
+                    { id: "settings", href: "settings.html", label: "Settings" },
+                    { id: "index", href: "index.html", label: "Home" },
+                ]
+                : [
+                    { id: "sos", href: "sos.html", label: "SOS (Location Only)", extraClass: "sos-nav" },
+                    { id: "index", href: "index.html", label: "Home" },
+                ];
 
         const nav = el("nav", { className: "rq-nav", id: "rqMainNav", "aria-label": "Primary navigation" });
         const navLinks = [];
@@ -95,7 +111,6 @@
             const a = el("a", {
                 href: item.href,
                 className: `rq-nav-link ${item.extraClass || ""} ${activePage === item.id ? "active" : ""}`.trim(),
-                hidden: Boolean(item.adminOnly),
                 text: item.label,
             });
             if (item.adminOnly) a.dataset.adminLink = "1";
@@ -170,7 +185,10 @@
     }
 
     async function initNav(activePage, { requireAuth = false, requireAdmin = false, nextPage = null } = {}) {
-        const refs = buildHeader(activePage);
+        if (typeof document !== "undefined" && document.body) {
+            document.body.dataset.role = "GUEST";
+        }
+        let refs = buildHeader(activePage, "GUEST");
         let token = null;
         try {
             token = auth.getAccessToken();
@@ -193,20 +211,20 @@
 
         try {
             const user = await auth.getCurrentUser();
+            const role = user && user.role ? String(user.role).toUpperCase() : "USER";
+            if (typeof document !== "undefined" && document.body) {
+                document.body.dataset.role = role;
+            }
+            refs = buildHeader(activePage, role);
             if (refs) {
                 refs.userBadge.hidden = false;
                 refs.loginLink.hidden = true;
                 refs.logoutBtn.hidden = false;
                 const displayName = (user.name || "User").trim();
-                document.getElementById("rqHeaderUserName").textContent = `${displayName} (${user.role})`;
+                document.getElementById("rqHeaderUserName").textContent = `${displayName} (${role})`;
                 document.getElementById("rqHeaderAvatar").textContent = (Array.from(displayName)[0] || "U").toUpperCase();
-                if (user.role === "ADMIN") {
-                    refs.navLinks.forEach(link => {
-                        if (link.dataset.adminLink === "1") link.hidden = false;
-                    });
-                }
             }
-            if (requireAdmin && user.role !== "ADMIN") {
+            if (requireAdmin && role !== "ADMIN") {
                 return { ...user, _forbiddenAdmin: true };
             }
             return user;
