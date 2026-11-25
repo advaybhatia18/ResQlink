@@ -28,10 +28,14 @@ Authentication header for protected routes: `Authorization: Bearer <supabase_acc
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| `POST` | `/emergency` | User | Submit SOS alert. Header `Idempotency-Key` required. Body: `{severity (1..5), category?, requested_services?, latitude?, longitude?, location_accuracy_m?, location_accuracy_confirmed?, notes?}`. Returns `201` (new) or `200` (idempotent duplicate) with `{id, alert_id ("RQ-YYYYMMDD-XXXXXX"), status, priority, severity, label, recommended_services, created_at, submission_status, duplicate, classification}` |
+| `POST` | `/emergency` | User | Submit SOS alert. Header `Idempotency-Key` required. Body: `{severity (1..5), category?, requested_services?, latitude?, longitude?, location_accuracy_m?, location_accuracy_confirmed?, notes?}`. Returns `201` (new) or `200` (idempotent duplicate) with `{id, alert_id ("RQ-YYYYMMDD-XXXXXX"), status, priority, severity, label, recommended_services, requested_services, created_at, session_started_at, session_ended_at, session_duration_seconds, submission_status, duplicate, classification}` |
+| `POST` | `/emergency/anonymous` | Public | Submit location-only SOS without sign-in. Header `Idempotency-Key` required. Body: `{latitude, longitude, location_accuracy_m?, location_accuracy_confirmed?}`. Stores `user_id = NULL` and notifies the Admin Panel |
 | `GET` | `/emergencies/me` | User | List signed-in user's own alerts; supports `status`, `category`, `limit`, `offset` |
+| `GET` | `/emergencies/me/active-session` | User | Return the signed-in user's latest ongoing timed SOS session (`session_ended_at` is `NULL` and status is not `RESOLVED`) |
+| `POST` | `/emergencies/{alert_id}/end-session` | Owner or Admin | End an active timed SOS session, recording `session_ended_at` and `session_duration_seconds` |
 | `GET` | `/emergencies/by-alert-id/{alert_id}` | Owner or Admin | Look up a single alert by its human-readable `alert_id` (`RQ-YYYYMMDD-XXXXXX`), including `status_history` and `admin_notes` |
 | `GET` | `/emergencies/{alert_id}` | Owner or Admin | Detailed emergency record by numeric `id`, including `status_history` timeline and `admin_notes` |
+| `GET` | `/emergencies/{alert_id}/reporter` | **Admin** | Return signed-in reporter profile/contact info (`name`, `email`, `phone`, `role`, `user_id`) or `anonymous: true` for location-only alerts |
 | `GET` | `/emergencies` | **Admin** | List/filter all alerts (`severity`, `status`, `category`, `service`, `date_from`, `date_to`, `search` including `alert_id`, `limit`, `offset`) |
 | `PATCH` | `/emergencies/{alert_id}/status` | **Admin** | Update alert lifecycle (`ACTIVE`, `ACKNOWLEDGED`, `DISPATCHED`, `RESOLVED`) and `admin_notes`; writes `emergency_status_history` & `admin_audit_logs` |
 | `PATCH` | `/emergency/{alert_id}/resolve` | **Admin** | Backward-compatible shortcut to mark an alert `RESOLVED` |
