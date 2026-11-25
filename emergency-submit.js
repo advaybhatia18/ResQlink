@@ -575,15 +575,17 @@
 
     function showAuthError(error) {
         currentUser = null;
-        elements.button.disabled = true;
+        elements.button.disabled = false;
+        elements.button.querySelector(".sos-button-label").textContent = "SOS";
+        elements.button.querySelector(".sos-button-subtitle").textContent = "LOCATION ONLY";
         showRecoveryActions({ auth: error.code !== "unauthenticated" });
         elements.signInLink.hidden = false;
         setProgress(
-            "auth-error",
+            "ready",
             error.code === "unauthenticated"
-                ? "Sign in to submit an alert. Your session is verified with the ResQlink API before GPS is requested."
-                : `${error.message} Check your connection, then verify your session again.`,
-            error.code === "unauthenticated" ? "SIGN IN" : "SESSION ERROR"
+                ? "Not signed in — pressing SOS sends your GPS location only to the Admin Panel. Sign in for full triage, history, and timed SOS session."
+                : `${error.message} Pressing SOS will still attempt a location-only alert.`,
+            error.code === "unauthenticated" ? "LOCATION ONLY" : "SESSION NOTICE"
         );
         loadSosContacts();
     }
@@ -599,6 +601,8 @@
             currentUser = user;
             elements.signInLink.hidden = true;
             elements.button.disabled = false;
+            elements.button.querySelector(".sos-button-label").textContent = "SOS";
+            elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
             loadSosContacts();
             loadActiveSosSession();
 
@@ -672,18 +676,24 @@
     }
 
     async function sendAttempt(attempt) {
-        if (flowBusy || !currentUser || attempt.userId !== currentUser.id) return;
+        if (flowBusy) return;
+        if (!attempt.anonymous && (!currentUser || attempt.userId !== currentUser.id)) return;
         flowBusy = true;
         elements.button.disabled = true;
         elements.button.querySelector(".sos-button-label").textContent = "SENDING";
         elements.button.querySelector(".sos-button-subtitle").textContent = "PLEASE WAIT";
         showRecoveryActions();
-        setProgress("submitting", "Sending your report securely to the ResQlink API…", "SENDING");
+        setProgress(
+            "submitting",
+            attempt.anonymous
+                ? "Sending your GPS location to the Admin Panel…"
+                : "Sending your report securely to the ResQlink API…",
+            "SENDING"
+        );
         try {
-            const result = await window.ResqlinkApi.submitEmergency(
-                attempt.payload,
-                attempt.key
-            );
+            const result = attempt.anonymous
+                ? await window.ResqlinkApi.submitAnonymousLocationSos(attempt.payload, attempt.key)
+                : await window.ResqlinkApi.submitEmergency(attempt.payload, attempt.key);
             const displayAlertId = typeof result.alert_id === "string"
                 ? result.alert_id
                 : `Alert #${result.alert_id}`;
@@ -694,18 +704,20 @@
             }
             elements.successTimestamp.dateTime = submittedAt.toISOString();
             elements.successTimestamp.textContent = `Recorded ${submittedAt.toLocaleString()}`;
-            renderSosSession({
-                id: result.id,
-                alert_id: displayAlertId,
-                status: result.status || "ACTIVE",
-                requested_services: result.requested_services
-                    || (result.classification && result.classification.requested_services)
-                    || attempt.payload.requested_services
-                    || [],
-                session_started_at: result.session_started_at || result.created_at || submittedAt.toISOString(),
-                session_ended_at: result.session_ended_at || null,
-                session_duration_seconds: result.session_duration_seconds ?? null,
-            });
+            if (!attempt.anonymous) {
+                renderSosSession({
+                    id: result.id,
+                    alert_id: displayAlertId,
+                    status: result.status || "ACTIVE",
+                    requested_services: result.requested_services
+                        || (result.classification && result.classification.requested_services)
+                        || attempt.payload.requested_services
+                        || [],
+                    session_started_at: result.session_started_at || result.created_at || submittedAt.toISOString(),
+                    session_ended_at: result.session_ended_at || null,
+                    session_duration_seconds: result.session_duration_seconds ?? null,
+                });
+            }
             try {
                 if (typeof BroadcastChannel === "function") {
                     const ch = new BroadcastChannel("resqlink-emergencies");
@@ -729,7 +741,9 @@
             const duplicate = result.submission_status === "already_submitted";
             setProgress(
                 "success",
-                `${duplicate ? "This alert was already recorded" : "Alert recorded"} as ${displayAlertId} (${result.status}). Public emergency services were not contacted.`,
+                attempt.anonymous
+                    ? `Location-only SOS recorded as ${displayAlertId} and sent to the Admin Panel.`
+                    : `${duplicate ? "This alert was already recorded" : "Alert recorded"} as ${displayAlertId} (${result.status}). Public emergency services were not contacted.`,
                 duplicate ? "ALREADY SAVED" : "RECORDED"
             );
             elements.button.querySelector(".sos-button-label").textContent = "SENT";
@@ -770,42 +784,60 @@
             }
         } finally {
             flowBusy = false;
-            elements.button.disabled = !currentUser || !elements.successPanel.hidden;
+            elements.button.disabled = !elements.successPanel.hidden;
         }
     }
 
     async function createAttempt(coords) {
         let attempt;
         try {
-            const severity = Number(elements.severity.value);
-            const category = elements.category ? elements.category.value : "PERSONAL_SAFETY";
-            const requested = customRequestedServices !== null
-                ? customRequestedServices
-                : (currentClassification ? currentClassification.requested_services : null);
-            const notes = elements.notes ? elements.notes.value.trim() : "";
+            if (!currentUser) {
+                if (!coords) {
+                    throw new Error("GPS location is required for location-only SOS without sign-in.");
+                }
+                attempt = {
+                    key: getSessionIdempotencyKey(),
+                    userId: "anonymous",
+                    anonymous: true,
+                    payload: {
+                        latitude: coords.latitude,
+                        longitude: coords.longitude,
+                        location_accuracy_m: coords.accuracy,
+                        location_accuracy_confirmed: Boolean(coords.accuracy > MAX_ACCEPTABLE_ACCURACY_M)
+                    }
+                };
+            } else {
+                const severity = Number(elements.severity.value);
+                const category = elements.category ? elements.category.value : "PERSONAL_SAFETY";
+                const requested = customRequestedServices !== null
+                    ? customRequestedServices
+                    : (currentClassification ? currentClassification.requested_services : null);
+                const notes = elements.notes ? elements.notes.value.trim() : "";
 
-            const payload = {
-                severity,
-                category,
-                latitude: coords ? coords.latitude : null,
-                longitude: coords ? coords.longitude : null,
-                location_accuracy_m: coords ? coords.accuracy : null,
-                location_accuracy_confirmed: Boolean(
-                    coords && coords.accuracy > MAX_ACCEPTABLE_ACCURACY_M
-                )
-            };
-            if (Array.isArray(requested)) {
-                payload.requested_services = requested;
-            }
-            if (notes) {
-                payload.notes = notes;
-            }
+                const payload = {
+                    severity,
+                    category,
+                    latitude: coords ? coords.latitude : null,
+                    longitude: coords ? coords.longitude : null,
+                    location_accuracy_m: coords ? coords.accuracy : null,
+                    location_accuracy_confirmed: Boolean(
+                        coords && coords.accuracy > MAX_ACCEPTABLE_ACCURACY_M
+                    )
+                };
+                if (Array.isArray(requested)) {
+                    payload.requested_services = requested;
+                }
+                if (notes) {
+                    payload.notes = notes;
+                }
 
-            attempt = {
-                key: getSessionIdempotencyKey(),
-                userId: currentUser.id,
-                payload
-            };
+                attempt = {
+                    key: getSessionIdempotencyKey(),
+                    userId: currentUser.id,
+                    anonymous: false,
+                    payload
+                };
+            }
             sessionStorage.setItem(PENDING_ATTEMPT_KEY, JSON.stringify(attempt));
         } catch (error) {
             showRecoveryActions();
@@ -824,7 +856,7 @@
     }
 
     async function requestLocationAndSubmit() {
-        if (flowBusy || !currentUser) return;
+        if (flowBusy) return;
         if (pendingAttempt) {
             await sendAttempt(pendingAttempt);
             return;
@@ -862,7 +894,7 @@
                 elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
                 elements.locationActions.hidden = false;
                 elements.useApproximate.hidden = false;
-                elements.withoutLocation.hidden = false;
+                elements.withoutLocation.hidden = !currentUser;
                 elements.retryLocation.hidden = false;
                 setProgress(
                     "error",
@@ -883,7 +915,7 @@
             elements.locationActions.hidden = false;
             elements.retryLocation.hidden = false;
             elements.useApproximate.hidden = true;
-            elements.withoutLocation.hidden = false;
+            elements.withoutLocation.hidden = !currentUser;
             setProgress("error", error.message || locationErrorMessage(error), "GPS UNAVAILABLE");
         }
     }
@@ -897,14 +929,13 @@
     }
 
     async function retryLocation() {
-        if (flowBusy || !currentUser) return;
+        if (flowBusy) return;
         await requestLocationAndSubmit();
     }
 
     async function useApproximateLocation() {
         if (
             flowBusy
-            || !currentUser
             || !approximateLocation
             || approximateLocation.accuracy <= MAX_ACCEPTABLE_ACCURACY_M
         ) {

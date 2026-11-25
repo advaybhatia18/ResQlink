@@ -274,6 +274,54 @@ class AlertIdAndIdempotencyTests(unittest.TestCase):
         finally:
             resqlink_app.app.dependency_overrides.pop(resqlink_app.get_authenticated_user, None)
 
+    def test_anonymous_location_only_sos_and_admin_reporter_info(self):
+        with patch(
+            "app.save_anonymous_location_alert",
+            return_value=(99, False, "ACTIVE"),
+        ) as anon_save:
+            res = self.client.post(
+                "/emergency/anonymous",
+                headers={"Idempotency-Key": "anon-loc-key-1"},
+                json={"latitude": 28.6139, "longitude": 77.2090, "location_accuracy_m": 18.0},
+            )
+        self.assertEqual(res.status_code, 201)
+        body = res.json()
+        self.assertTrue(body["location_only"])
+        self.assertEqual(body["id"], 99)
+        self.assertEqual(body["status"], "ACTIVE")
+        anon_save.assert_called_once()
+
+        missing_coords = self.client.post(
+            "/emergency/anonymous",
+            headers={"Idempotency-Key": "anon-loc-key-2"},
+            json={},
+        )
+        self.assertEqual(missing_coords.status_code, 422)
+
+        self.assertEqual(self.client.get("/emergencies/99/reporter").status_code, 401)
+        resqlink_app.app.dependency_overrides[resqlink_app.require_admin] = (
+            lambda: {"id": "22222222-2222-4222-8222-222222222222", "role": "ADMIN"}
+        )
+        try:
+            with patch(
+                "app.get_emergency_reporter_info",
+                return_value={
+                    "id": 99,
+                    "alert_id": "RQ-20261126-TEST99",
+                    "anonymous": False,
+                    "user_id": "11111111-1111-4111-8111-111111111111",
+                    "name": "Test Reporter",
+                    "email": "reporter@example.com",
+                    "phone": "+919999999999",
+                    "role": "USER",
+                },
+            ):
+                rep_res = self.client.get("/emergencies/99/reporter")
+                self.assertEqual(rep_res.status_code, 200)
+                self.assertEqual(rep_res.json()["email"], "reporter@example.com")
+        finally:
+            resqlink_app.app.dependency_overrides.pop(resqlink_app.require_admin, None)
+
 
 if __name__ == "__main__":
     unittest.main()

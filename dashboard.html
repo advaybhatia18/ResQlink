@@ -1197,6 +1197,46 @@
             }
         }
 
+        async function openReporterModal(alertId, triggerEl = null) {
+            if (triggerEl) lastModalTrigger = triggerEl;
+            elements.detailModal.hidden = false;
+            elements.closeDetailBtn.focus();
+            elements.detailBody.replaceChildren(el("p", { className: "section-caption", text: "Loading reporter user info…" }));
+            try {
+                const info = await auth.request(`/emergencies/${encodeURIComponent(alertId)}/reporter`, {
+                    method: "GET",
+                    cache: "no-store"
+                });
+                if (info.anonymous) {
+                    elements.detailBody.replaceChildren(
+                        el("div", { style: "display:grid; gap:10px; font-size:13.5px;" },
+                            el("strong", { text: `${info.alert_id || `Alert #${info.id}`} — Anonymous Reporter` }),
+                            el("p", { className: "section-caption", text: info.message || "Location-only SOS submitted without sign-in." })
+                        )
+                    );
+                    return;
+                }
+                elements.detailBody.replaceChildren(
+                    el("div", { style: "display:grid; gap:10px; font-size:13.5px;" },
+                        el("div", {},
+                            el("strong", { text: `User Info · ${info.alert_id || `Alert #${info.id}`}` }),
+                            " ",
+                            makeTag(info.role || "USER", "resolved")
+                        ),
+                        el("div", { text: `Name: ${info.name || "Not provided"}` }),
+                        el("div", { text: `Email: ${info.email || "Unavailable"}` }),
+                        el("div", { text: `Phone: ${info.phone || "Not provided"}` }),
+                        el("div", { text: `User ID: ${info.user_id || "—"}` }),
+                        info.account_created_at
+                            ? el("div", { className: "section-caption", text: `Account created: ${formatDate(info.account_created_at)}` })
+                            : null
+                    )
+                );
+            } catch (error) {
+                elements.detailBody.replaceChildren(el("div", { className: "error-state", text: error.message }));
+            }
+        }
+
         async function openEmergencyModal(alertId, triggerEl = null) {
             if (triggerEl) lastModalTrigger = triggerEl;
             elements.detailModal.hidden = false;
@@ -1342,7 +1382,7 @@
                     makeTag(`Severity ${alert.severity}/5`, severityClass),
                     makeTag(`Priority ${alert.priority}`, ""),
                     makeTag(`Services: ${servicesText}`, ""),
-                    alert.reporter_ref ? makeTag(`Reporter ${alert.reporter_ref}`, "") : makeTag("Legacy", "")
+                    alert.reporter_ref ? makeTag(`Reporter ${alert.reporter_ref}`, "") : makeTag("Anonymous · Location only", "")
                 );
 
                 const time = document.createElement("p");
@@ -1373,6 +1413,15 @@
                     noLocation.className = "section-caption";
                     noLocation.textContent = "GPS location unavailable";
                     actions.appendChild(noLocation);
+                }
+
+                if (alert.reporter_ref) {
+                    const userInfoBtn = document.createElement("button");
+                    userInfoBtn.className = "button secondary";
+                    userInfoBtn.type = "button";
+                    userInfoBtn.textContent = "👤 User Info";
+                    userInfoBtn.addEventListener("click", () => openReporterModal(alert.id, userInfoBtn));
+                    actions.appendChild(userInfoBtn);
                 }
 
                 const detailsBtn = document.createElement("button");

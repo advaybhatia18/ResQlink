@@ -169,10 +169,60 @@
         return data;
     }
 
+    async function submitAnonymousLocationSos(payload, idempotencyKey) {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(
+            () => controller.abort(),
+            REQUEST_TIMEOUT_MS
+        );
+        let response;
+        let data = null;
+        try {
+            response = await fetch(`${getBaseUrl()}/emergency/anonymous`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Idempotency-Key": idempotencyKey
+                },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+            try {
+                data = await response.json();
+            } catch (_error) {
+                data = null;
+            }
+        } catch (error) {
+            if (error && error.name === "AbortError") {
+                throw new ResqlinkApiError(
+                    "The request timed out. The location-only alert may still have been saved; retry the same request.",
+                    0,
+                    "timeout"
+                );
+            }
+            throw new ResqlinkApiError(
+                "Could not reach the ResQlink API. Check your connection and retry.",
+                0,
+                "network"
+            );
+        } finally {
+            window.clearTimeout(timeoutId);
+        }
+
+        if (!response.ok) {
+            const detail = data && typeof data.detail === "string"
+                ? data.detail
+                : `The ResQlink API returned status ${response.status}.`;
+            throw new ResqlinkApiError(detail, response.status, "api_error");
+        }
+        return data;
+    }
+
     window.ResqlinkApi = Object.freeze({
         getCurrentUser,
         request,
         submitEmergency,
+        submitAnonymousLocationSos,
         clearSession
     });
 })();

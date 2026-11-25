@@ -1112,3 +1112,149 @@ def resolve_alert(alert_id: int) -> bool:
             detail="Supabase returned an invalid emergency update result"
         )
     return any(row["id"] == alert_id for row in response.data)
+
+
+def save_anonymous_location_alert(
+    emergency: dict,
+    idempotency_key: str,
+) -> tuple[int, bool, str]:
+    """Save an unauthenticated location-only SOS alert (user_id is NULL)."""
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip() or len(idempotency_key.strip()) > 128:
+        raise HTTPException(status_code=422, detail="Invalid idempotency key")
+    cleaned_key = idempotency_key.strip()
+
+    latitude = emergency.get("latitude")
+    longitude = emergency.get("longitude")
+    if (
+        isinstance(latitude, bool)
+        or isinstance(longitude, bool)
+        or not isinstance(latitude, (int, float))
+        or not isinstance(longitude, (int, float))
+        or not math.isfinite(latitude)
+        or not math.isfinite(longitude)
+        or not (-90 <= latitude <= 90)
+        or not (-180 <= longitude <= 180)
+    ):
+        raise HTTPException(status_code=422, detail="Valid GPS coordinates are required for location-only SOS")
+
+    accuracy = emergency.get("location_accuracy_m")
+    if accuracy is not None and (
+        isinstance(accuracy, bool)
+        or not isinstance(accuracy, (int, float))
+        or not math.isfinite(accuracy)
+        or accuracy < 0
+    ):
+        raise HTTPException(status_code=422, detail="Invalid GPS accuracy")
+
+    try:
+        existing_resp = (
+            get_database_client()
+            .table("emergencies")
+            .select("id, alert_id, status, created_at, session_started_at")
+            .is_("user_id", "null")
+            .eq("idempotency_key", cleaned_key)
+            .limit(1)
+            .execute()
+        )
+        if isinstance(existing_resp.data, list) and existing_resp.data:
+            existing = existing_resp.data[0]
+            emergency["alert_id"] = existing.get("alert_id") or existing["id"]
+            emergency["created_at"] = existing.get("created_at")
+            emergency["session_started_at"] = existing.get("session_started_at") or existing.get("created_at")
+            return existing["id"], True, existing["status"]
+    except (APIError, HTTPError) as error:
+        raise HTTPException(status_code=503, detail="Could not verify location-only SOS submission") from error
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    insert_data = {
+        "severity": 4,
+        "label": "VERY HIGH",
+        "priority": 80,
+        "category": "PERSONAL_SAFETY",
+        "recommended_services": ["POLICE", "AMBULANCE_MEDICAL"],
+        "requested_services": [],
+        "notes": "Anonymous location-only SOS (submitted without sign-in)",
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "location_accuracy_m": float(accuracy) if accuracy is not None else None,
+        "user_id": None,
+        "idempotency_key": cleaned_key,
+        "session_started_at": now_iso,
+    }
+
+    response = None
+    generated_alert_id = None
+    for _attempt in range(5):
+        generated_alert_id = generate_alert_id()
+        insert_data["alert_id"] = generated_alert_id
+        try:
+            response = get_database_client().table("emergencies").insert(insert_data).execute()
+            break
+        except APIError as error:
+            if getattr(error, "code", None) == "23505" or "alert_id" in str(error).lower():
+                continue
+            raise HTTPException(status_code=503, detail="Could not save location-only SOS to Supabase") from error
+        except HTTPError as error:
+            raise HTTPException(status_code=503, detail="Could not save location-only SOS to Supabase") from error
+
+    if response is None or not isinstance(response.data, list) or not response.data:
+        raise HTTPException(status_code=503, detail="Supabase returned an invalid saved location-only SOS")
+
+    row = response.data[0]
+    emergency["alert_id"] = row.get("alert_id") or generated_alert_id
+    if row.get("created_at"):
+        emergency["created_at"] = row["created_at"]
+    emergency["session_started_at"] = row.get("session_started_at") or row.get("created_at") or now_iso
+    return row["id"], False, row.get("status") or "ACTIVE"
+
+
+def get_emergency_reporter_info(alert_id: int) -> dict | None:
+    """Return reporter profile/email for an emergency (admin-only)."""
+    if type(alert_id) is not int or alert_id < 1:
+        raise HTTPException(status_code=422, detail="Invalid emergency ID")
+
+    try:
+        resp = (
+            get_database_client()
+            .table("emergencies")
+            .select("id, alert_id, user_id")
+            .eq("id", alert_id)
+            .limit(1)
+            .execute()
+        )
+    except (APIError, HTTPError) as error:
+        raise HTTPException(status_code=503, detail="Could not load emergency reporter reference") from error
+
+    if not isinstance(resp.data, list) or not resp.data:
+        return None
+    row = resp.data[0]
+    user_id = row.get("user_id")
+    if not user_id:
+        return {
+            "id": row["id"],
+            "alert_id": row.get("alert_id") or row["id"],
+            "anonymous": True,
+            "message": "Location-only SOS submitted without sign-in.",
+        }
+
+    profile = get_user_profile(user_id) or {}
+    email = None
+    try:
+        auth_resp = get_database_client().auth.admin.get_user_by_id(user_id)
+        auth_user = getattr(auth_resp, "user", None)
+        if auth_user is not None:
+            email = getattr(auth_user, "email", None)
+    except Exception:
+        email = None
+
+    return {
+        "id": row["id"],
+        "alert_id": row.get("alert_id") or row["id"],
+        "anonymous": False,
+        "user_id": user_id,
+        "name": profile.get("name") or "Registered user",
+        "email": email,
+        "phone": profile.get("phone"),
+        "role": profile.get("role") or "USER",
+        "account_created_at": profile.get("created_at"),
+    }

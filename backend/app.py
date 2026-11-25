@@ -46,11 +46,13 @@ from storage import (
     get_alert_detail_by_alert_id,
     get_alerts,
     get_auth_client,
+    get_emergency_reporter_info,
     get_user_profile,
     request_account_deletion,
     resolve_alert,
     revoke_supabase_session,
     save_alert,
+    save_anonymous_location_alert,
     update_alert_status,
     update_supabase_password,
     update_user_profile,
@@ -378,6 +380,75 @@ def recommend_classification(request: ClassificationPreviewRequest):
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
+class AnonymousLocationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    location_accuracy_m: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    location_accuracy_confirmed: bool = False
+
+    @field_validator("latitude", "longitude", "location_accuracy_m", mode="before")
+    @classmethod
+    def reject_boolean_or_non_numeric_anon_location(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("Location values must be finite numbers")
+        return float(value)
+
+    @model_validator(mode="after")
+    def validate_anon_accuracy(self):
+        if (
+            self.location_accuracy_m is not None
+            and self.location_accuracy_m > MAX_LOCATION_ACCURACY_METERS
+            and not self.location_accuracy_confirmed
+        ):
+            raise ValueError(
+                f"Location accuracy exceeds {int(MAX_LOCATION_ACCURACY_METERS)} meters; confirm approximate location or retry GPS"
+            )
+        return self
+
+
+@app.post("/emergency/anonymous")
+def create_anonymous_location_emergency(
+    request: AnonymousLocationRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+):
+    try:
+        normalized_location = validate_location(request.latitude, request.longitude)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if not normalized_location:
+        raise HTTPException(status_code=422, detail="GPS coordinates are required")
+
+    payload = {
+        "latitude": normalized_location["latitude"],
+        "longitude": normalized_location["longitude"],
+        "location_accuracy_m": request.location_accuracy_m,
+    }
+    internal_id, duplicate, status = save_anonymous_location_alert(payload, idempotency_key)
+    alert_id = payload.get("alert_id") or internal_id
+    return JSONResponse(
+        status_code=200 if duplicate else 201,
+        content={
+            "message": (
+                "This location-only alert was already recorded."
+                if duplicate
+                else "Location-only SOS sent to the Admin Panel."
+            ),
+            "id": internal_id,
+            "alert_id": alert_id,
+            "status": status,
+            "submission_status": "already_submitted" if duplicate else "submitted",
+            "duplicate": duplicate,
+            "location_only": True,
+            "created_at": payload.get("created_at"),
+            "session_started_at": payload.get("session_started_at") or payload.get("created_at"),
+        },
+    )
+
+
 @app.post("/emergency")
 def create_emergency(
     request: EmergencyRequest,
@@ -603,6 +674,14 @@ def get_my_active_sos_session(
     current_user: dict = Depends(get_authenticated_user),
 ):
     return {"session": get_active_sos_session(current_user["id"])}
+
+
+@app.get("/emergencies/{alert_id}/reporter", dependencies=[Depends(require_admin)])
+def get_emergency_reporter(alert_id: int):
+    info = get_emergency_reporter_info(alert_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Emergency alert not found")
+    return info
 
 
 @app.post("/emergencies/{alert_id}/end-session")
