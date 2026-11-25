@@ -14,11 +14,13 @@ ResQlink is an emergency-assistance platform, triage classification aid, persona
 
 ## Key Features
 
-- **Idempotent SOS Reporting & Triage:** 7 emergency categories, 5 severity levels, C-engine priority scoring (`20–100`), service recommendations (`POLICE`, `FIRE_RESCUE`, `AMBULANCE_MEDICAL`), browser GPS capture with `>100 m` accuracy guard, Leaflet map preview, and `Idempotency-Key` retry protection.
-- **Unique Alert IDs & Status History:** Every alert receives a human-readable `RQ-YYYYMMDD-XXXXXX` identifier and an append-only `emergency_status_history` timeline (`ACTIVE -> ACKNOWLEDGED -> DISPATCHED -> RESOLVED`).
-- **Live Admin & History Sync:**
+- **Idempotent SOS Reporting & Location-Only Guest Mode:** 7 emergency categories, 5 severity levels, C-engine priority scoring (`20–100`), service recommendations (`POLICE`, `FIRE_RESCUE`, `AMBULANCE_MEDICAL`), browser GPS capture with `>100 m` accuracy guard, Leaflet map preview, `Idempotency-Key` retry protection, and unauthenticated **location-only SOS** (`POST /emergency/anonymous`) when not signed in.
+- **Timed SOS Sessions & Unique Alert IDs:** Every authenticated SOS starts a live timed session (`session_started_at`, `session_ended_at`, `session_duration_seconds`) that can be ended directly on [`sos.html`](./sos.html), with a human-readable `RQ-YYYYMMDD-XXXXXX` ID and append-only `emergency_status_history` timeline.
+- **Role-Prioritized Spaces & Admin User Info:** [`ui-shell.js`](./ui-shell.js) and page layouts prioritize tools by role (`ADMIN`, `USER`, `GUEST`). On [`dashboard.html`](./dashboard.html), admins get horizontal analytics bar charts, CSV export, and a **User Info** button (`GET /emergencies/{id}/reporter`) for signed-in alerts.
+- **Live Admin & History Sync + Offline Shell:**
   - [`dashboard.html`](./dashboard.html) polls every 5s when active, retries automatically after transient cold-start timeouts, and syncs immediately on tab focus, `visibilitychange`, `BroadcastChannel`, and `storage` events.
   - [`history.html`](./history.html) polls every 10s when visible, syncs cross-tab on new SOS submissions or admin updates, and displays the full status transition timeline.
+  - [`sw.js`](./sw.js) and [`manifest.webmanifest`](./manifest.webmanifest) cache the static shell for weak-signal resilience while preserving pending SOS retry keys.
 - **Emergency Contacts & Audit Trails:** Up to 10 personal emergency contacts per account with primary designation, `tel:` / clipboard fallback, and consent-logged notification history.
 - **Strictly Isolated Simulator:** [`simulator.html`](./simulator.html) runs 14 prebuilt and custom emergency scenarios persisted only to `public.simulator_runs`, never mixing with real alerts or notifications.
 - **Security & Access Control:** Supabase JWT verification, server-enforced `ADMIN` RBAC, Row Level Security (`supabase/schema.sql`), rate limiting, CORS origin allowlisting, and XSS-safe DOM rendering (`textContent`, never `innerHTML`).
@@ -44,7 +46,9 @@ ResQlink is an emergency-assistance platform, triage classification aid, persona
 .
 ├── *.html                     # 12 static frontend pages
 ├── theme.css, auth.css        # Accessible responsive stylesheets
-├── emergency.css              # Legacy SOS utility stylesheet (retained)
+├── emergency.css              # SOS console stylesheet & multi-state trigger styles
+├── manifest.webmanifest, sw.js# PWA manifest and offline shell Service Worker
+├── DESIGN.md                  # Design tokens and accessibility conventions
 ├── api-config.js              # Environment-aware API base URL configuration
 ├── auth-session.js            # Tab-scoped session storage and authenticated API client
 ├── auth-pages.js              # Auth forms & redirect allowlist
@@ -109,7 +113,7 @@ python -m http.server 5500
 ## Running Automated Tests
 
 ```powershell
-# Backend, C engine, schema, and static asset integrity tests (127 tests)
+# Backend, C engine, schema, and static asset integrity tests (130 tests)
 python -m pytest
 
 # Frontend JS tests (7 tests, requires Node.js 20+)
@@ -118,6 +122,7 @@ node --test frontend-tests\auth-session.test.cjs frontend-tests\platform-ui.test
 
 ## Documentation
 
+- [`DESIGN.md`](./DESIGN.md) — Design tokens, role workspace accents, and accessibility conventions
 - [`MANUAL_STEPS.md`](./MANUAL_STEPS.md) — Step-by-step setup checklist for Supabase, Render, and GitHub Pages
 - [`SUPABASE_SETUP.md`](./SUPABASE_SETUP.md) — Database schema, RLS policies, Auth URL allowlist, and admin promotion
 - [`DEPLOYMENT.md`](./DEPLOYMENT.md) — Render backend and GitHub Pages deployment guide
