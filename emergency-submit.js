@@ -56,13 +56,25 @@
         mapOverlay: document.getElementById("mapOverlay"),
         mapMessage: document.getElementById("mapMessage"),
         sosContactsStatus: document.getElementById("sosContactsStatus"),
-        sosContactsList: document.getElementById("sosContactsList")
+        sosContactsList: document.getElementById("sosContactsList"),
+        sosSessionPanel: document.getElementById("sosSessionPanel"),
+        sessionStateBadge: document.getElementById("sessionStateBadge"),
+        sessionAlertCode: document.getElementById("sessionAlertCode"),
+        sessionElapsedTimer: document.getElementById("sessionElapsedTimer"),
+        sessionServicesText: document.getElementById("sessionServicesText"),
+        sessionStartText: document.getElementById("sessionStartText"),
+        sessionEndRow: document.getElementById("sessionEndRow"),
+        sessionEndText: document.getElementById("sessionEndText"),
+        sessionDurationText: document.getElementById("sessionDurationText"),
+        endSosSessionButton: document.getElementById("endSosSessionButton")
     };
 
     let currentUser = null;
     let map = null;
     let locationMarker = null;
     let accuracyCircle = null;
+    let activeSosSession = null;
+    let sessionTimerInterval = null;
     let approximateLocation = null;
     let pendingAttempt = null;
     let pendingAttemptCorrupt = false;
@@ -324,8 +336,7 @@
         elements.severity.disabled = false;
         if (elements.category) elements.category.disabled = false;
         elements.button.disabled = !currentUser;
-        elements.button.querySelector(".sos-button-label").textContent = "SOS";
-        elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
+        setButtonState(currentUser ? "ready" : "anonymous", "SOS", currentUser ? "SEND ALERT" : "LOCATION ONLY");
         showRecoveryActions();
         setProgress(
             "ready",
@@ -561,17 +572,24 @@
         ].join("-");
     }
 
+    function setButtonState(state, label, subtitle) {
+        elements.button.dataset.sosState = state;
+        elements.button.querySelector(".sos-button-label").textContent = label;
+        elements.button.querySelector(".sos-button-subtitle").textContent = subtitle;
+    }
+
     function showAuthError(error) {
         currentUser = null;
-        elements.button.disabled = true;
+        elements.button.disabled = false;
+        setButtonState("anonymous", "SOS", "LOCATION ONLY");
         showRecoveryActions({ auth: error.code !== "unauthenticated" });
         elements.signInLink.hidden = false;
         setProgress(
-            "auth-error",
+            "ready",
             error.code === "unauthenticated"
-                ? "Sign in to submit an alert. Your session is verified with the ResQlink API before GPS is requested."
-                : `${error.message} Check your connection, then verify your session again.`,
-            error.code === "unauthenticated" ? "SIGN IN" : "SESSION ERROR"
+                ? "Not signed in — pressing SOS sends your GPS location only to the Admin Panel. Sign in for full triage, history, and timed SOS session."
+                : `${error.message} Pressing SOS will still attempt a location-only alert.`,
+            error.code === "unauthenticated" ? "LOCATION ONLY" : "SESSION NOTICE"
         );
         loadSosContacts();
     }
@@ -587,7 +605,9 @@
             currentUser = user;
             elements.signInLink.hidden = true;
             elements.button.disabled = false;
+            setButtonState("ready", "SOS", "SEND ALERT");
             loadSosContacts();
+            loadActiveSosSession();
 
             if (pendingAttemptCorrupt) {
                 elements.severity.disabled = true;
@@ -638,8 +658,7 @@
                     };
                     showCoordinates(coords);
                 }
-                elements.button.querySelector(".sos-button-label").textContent = "RETRY";
-                elements.button.querySelector(".sos-button-subtitle").textContent = "SAME ALERT";
+                setButtonState("retry", "RETRY", "SAME ALERT");
                 setProgress(
                     "error",
                     "A previous submission was not confirmed. Press SOS to retry the same alert safely.",
@@ -659,18 +678,23 @@
     }
 
     async function sendAttempt(attempt) {
-        if (flowBusy || !currentUser || attempt.userId !== currentUser.id) return;
+        if (flowBusy) return;
+        if (!attempt.anonymous && (!currentUser || attempt.userId !== currentUser.id)) return;
         flowBusy = true;
         elements.button.disabled = true;
-        elements.button.querySelector(".sos-button-label").textContent = "SENDING";
-        elements.button.querySelector(".sos-button-subtitle").textContent = "PLEASE WAIT";
+        setButtonState("sending", "SENDING", "PLEASE WAIT");
         showRecoveryActions();
-        setProgress("submitting", "Sending your report securely to the ResQlink API…", "SENDING");
+        setProgress(
+            "submitting",
+            attempt.anonymous
+                ? "Sending your GPS location to the Admin Panel…"
+                : "Sending your report securely to the ResQlink API…",
+            "SENDING"
+        );
         try {
-            const result = await window.ResqlinkApi.submitEmergency(
-                attempt.payload,
-                attempt.key
-            );
+            const result = attempt.anonymous
+                ? await window.ResqlinkApi.submitAnonymousLocationSos(attempt.payload, attempt.key)
+                : await window.ResqlinkApi.submitEmergency(attempt.payload, attempt.key);
             const displayAlertId = typeof result.alert_id === "string"
                 ? result.alert_id
                 : `Alert #${result.alert_id}`;
@@ -681,6 +705,20 @@
             }
             elements.successTimestamp.dateTime = submittedAt.toISOString();
             elements.successTimestamp.textContent = `Recorded ${submittedAt.toLocaleString()}`;
+            if (!attempt.anonymous) {
+                renderSosSession({
+                    id: result.id,
+                    alert_id: displayAlertId,
+                    status: result.status || "ACTIVE",
+                    requested_services: result.requested_services
+                        || (result.classification && result.classification.requested_services)
+                        || attempt.payload.requested_services
+                        || [],
+                    session_started_at: result.session_started_at || result.created_at || submittedAt.toISOString(),
+                    session_ended_at: result.session_ended_at || null,
+                    session_duration_seconds: result.session_duration_seconds ?? null,
+                });
+            }
             try {
                 if (typeof BroadcastChannel === "function") {
                     const ch = new BroadcastChannel("resqlink-emergencies");
@@ -704,11 +742,12 @@
             const duplicate = result.submission_status === "already_submitted";
             setProgress(
                 "success",
-                `${duplicate ? "This alert was already recorded" : "Alert recorded"} as ${displayAlertId} (${result.status}). Public emergency services were not contacted.`,
+                attempt.anonymous
+                    ? `Location-only SOS recorded as ${displayAlertId} and sent to the Admin Panel.`
+                    : `${duplicate ? "This alert was already recorded" : "Alert recorded"} as ${displayAlertId} (${result.status}). Public emergency services were not contacted.`,
                 duplicate ? "ALREADY SAVED" : "RECORDED"
             );
-            elements.button.querySelector(".sos-button-label").textContent = "SENT";
-            elements.button.querySelector(".sos-button-subtitle").textContent = "RECORDED";
+            setButtonState("sent", "SENT", "RECORDED");
             if (pendingAttempt) {
                 elements.button.disabled = true;
                 elements.newAlertButton.hidden = true;
@@ -724,8 +763,7 @@
         } catch (error) {
             if (error.code === "expired" || error.code === "unauthenticated") {
                 currentUser = null;
-                elements.button.querySelector(".sos-button-label").textContent = "SIGN IN";
-                elements.button.querySelector(".sos-button-subtitle").textContent = "TO RETRY";
+                setButtonState("retry", "SIGN IN", "TO RETRY");
                 elements.signInLink.hidden = false;
                 showRecoveryActions();
                 setProgress(
@@ -734,8 +772,7 @@
                     "SESSION EXPIRED"
                 );
             } else {
-                elements.button.querySelector(".sos-button-label").textContent = "RETRY";
-                elements.button.querySelector(".sos-button-subtitle").textContent = "SAME ALERT";
+                setButtonState("retry", "RETRY", "SAME ALERT");
                 showRecoveryActions();
                 setProgress(
                     "error",
@@ -745,42 +782,60 @@
             }
         } finally {
             flowBusy = false;
-            elements.button.disabled = !currentUser || !elements.successPanel.hidden;
+            elements.button.disabled = !elements.successPanel.hidden;
         }
     }
 
     async function createAttempt(coords) {
         let attempt;
         try {
-            const severity = Number(elements.severity.value);
-            const category = elements.category ? elements.category.value : "PERSONAL_SAFETY";
-            const requested = customRequestedServices !== null
-                ? customRequestedServices
-                : (currentClassification ? currentClassification.requested_services : null);
-            const notes = elements.notes ? elements.notes.value.trim() : "";
+            if (!currentUser) {
+                if (!coords) {
+                    throw new Error("GPS location is required for location-only SOS without sign-in.");
+                }
+                attempt = {
+                    key: getSessionIdempotencyKey(),
+                    userId: "anonymous",
+                    anonymous: true,
+                    payload: {
+                        latitude: coords.latitude,
+                        longitude: coords.longitude,
+                        location_accuracy_m: coords.accuracy,
+                        location_accuracy_confirmed: Boolean(coords.accuracy > MAX_ACCEPTABLE_ACCURACY_M)
+                    }
+                };
+            } else {
+                const severity = Number(elements.severity.value);
+                const category = elements.category ? elements.category.value : "PERSONAL_SAFETY";
+                const requested = customRequestedServices !== null
+                    ? customRequestedServices
+                    : (currentClassification ? currentClassification.requested_services : null);
+                const notes = elements.notes ? elements.notes.value.trim() : "";
 
-            const payload = {
-                severity,
-                category,
-                latitude: coords ? coords.latitude : null,
-                longitude: coords ? coords.longitude : null,
-                location_accuracy_m: coords ? coords.accuracy : null,
-                location_accuracy_confirmed: Boolean(
-                    coords && coords.accuracy > MAX_ACCEPTABLE_ACCURACY_M
-                )
-            };
-            if (Array.isArray(requested)) {
-                payload.requested_services = requested;
-            }
-            if (notes) {
-                payload.notes = notes;
-            }
+                const payload = {
+                    severity,
+                    category,
+                    latitude: coords ? coords.latitude : null,
+                    longitude: coords ? coords.longitude : null,
+                    location_accuracy_m: coords ? coords.accuracy : null,
+                    location_accuracy_confirmed: Boolean(
+                        coords && coords.accuracy > MAX_ACCEPTABLE_ACCURACY_M
+                    )
+                };
+                if (Array.isArray(requested)) {
+                    payload.requested_services = requested;
+                }
+                if (notes) {
+                    payload.notes = notes;
+                }
 
-            attempt = {
-                key: getSessionIdempotencyKey(),
-                userId: currentUser.id,
-                payload
-            };
+                attempt = {
+                    key: getSessionIdempotencyKey(),
+                    userId: currentUser.id,
+                    anonymous: false,
+                    payload
+                };
+            }
             sessionStorage.setItem(PENDING_ATTEMPT_KEY, JSON.stringify(attempt));
         } catch (error) {
             showRecoveryActions();
@@ -799,15 +854,14 @@
     }
 
     async function requestLocationAndSubmit() {
-        if (flowBusy || !currentUser) return;
+        if (flowBusy) return;
         if (pendingAttempt) {
             await sendAttempt(pendingAttempt);
             return;
         }
         flowBusy = true;
         elements.button.disabled = true;
-        elements.button.querySelector(".sos-button-label").textContent = "LOCATING";
-        elements.button.querySelector(".sos-button-subtitle").textContent = "PLEASE WAIT";
+        setButtonState("locating", "LOCATING", "GETTING GPS");
         showRecoveryActions();
         clearMapLocation("Waiting for a fresh GPS location");
         updateLocationStatus("locating", "Requesting device location…");
@@ -833,11 +887,10 @@
             if (coords.accuracy > MAX_ACCEPTABLE_ACCURACY_M) {
                 flowBusy = false;
                 elements.button.disabled = false;
-                elements.button.querySelector(".sos-button-label").textContent = "SOS";
-                elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
+                setButtonState(currentUser ? "ready" : "anonymous", "SOS", currentUser ? "SEND ALERT" : "LOCATION ONLY");
                 elements.locationActions.hidden = false;
                 elements.useApproximate.hidden = false;
-                elements.withoutLocation.hidden = false;
+                elements.withoutLocation.hidden = !currentUser;
                 elements.retryLocation.hidden = false;
                 setProgress(
                     "error",
@@ -853,12 +906,11 @@
             updateLocationStatus("error", "Location unavailable");
             flowBusy = false;
             elements.button.disabled = false;
-            elements.button.querySelector(".sos-button-label").textContent = "SOS";
-            elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
+            setButtonState(currentUser ? "ready" : "anonymous", "SOS", currentUser ? "SEND ALERT" : "LOCATION ONLY");
             elements.locationActions.hidden = false;
             elements.retryLocation.hidden = false;
             elements.useApproximate.hidden = true;
-            elements.withoutLocation.hidden = false;
+            elements.withoutLocation.hidden = !currentUser;
             setProgress("error", error.message || locationErrorMessage(error), "GPS UNAVAILABLE");
         }
     }
@@ -872,14 +924,13 @@
     }
 
     async function retryLocation() {
-        if (flowBusy || !currentUser) return;
+        if (flowBusy) return;
         await requestLocationAndSubmit();
     }
 
     async function useApproximateLocation() {
         if (
             flowBusy
-            || !currentUser
             || !approximateLocation
             || approximateLocation.accuracy <= MAX_ACCEPTABLE_ACCURACY_M
         ) {
@@ -899,8 +950,7 @@
         customRequestedServices = null;
         if (elements.notes) elements.notes.value = "";
         elements.button.disabled = false;
-        elements.button.querySelector(".sos-button-label").textContent = "SOS";
-        elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
+        setButtonState(currentUser ? "ready" : "anonymous", "SOS", currentUser ? "SEND ALERT" : "LOCATION ONLY");
         clearMapLocation("Map preview appears after GPS is available");
         updateLocationStatus("idle", "Not requested");
         setProgress("ready", "Ready when you are. Your alert will be sent to the ResQlink API.", "READY");
@@ -932,6 +982,158 @@
     elements.severity.addEventListener("change", () => scheduleClassificationRefresh(true));
     if (elements.category) {
         elements.category.addEventListener("change", () => scheduleClassificationRefresh(true));
+    }
+
+    function formatElapsedClock(totalSeconds) {
+        const secs = Math.max(0, Math.floor(totalSeconds));
+        const hours = String(Math.floor(secs / 3600)).padStart(2, "0");
+        const mins = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
+        const rem = String(secs % 60).padStart(2, "0");
+        return `${hours}:${mins}:${rem}`;
+    }
+
+    function formatDurationWords(totalSeconds) {
+        const secs = Math.max(0, Math.floor(totalSeconds));
+        const hours = Math.floor(secs / 3600);
+        const mins = Math.floor((secs % 3600) / 60);
+        const rem = secs % 60;
+        if (hours > 0) return `${hours}h ${mins}m ${rem}s`;
+        if (mins > 0) return `${mins}m ${rem}s`;
+        return `${rem}s`;
+    }
+
+    function stopSessionTimer() {
+        if (sessionTimerInterval !== null) {
+            window.clearInterval(sessionTimerInterval);
+            sessionTimerInterval = null;
+        }
+    }
+
+    function renderSosSession(session) {
+        if (!elements.sosSessionPanel || !session || !session.id) return;
+        activeSosSession = session;
+        stopSessionTimer();
+        elements.sosSessionPanel.hidden = false;
+        elements.sessionAlertCode.textContent = session.alert_id || `Alert #${session.id}`;
+
+        const ui = window.ResqlinkUI;
+        const serviceNames = (session.requested_services || []).map(code =>
+            ui && typeof ui.serviceLabel === "function" ? ui.serviceLabel(code) : code
+        );
+        elements.sessionServicesText.textContent = serviceNames.length
+            ? serviceNames.join(", ")
+            : "No specific support selected";
+
+        const startedAtMs = Date.parse(session.session_started_at || session.created_at || "");
+        const validStart = Number.isFinite(startedAtMs) ? startedAtMs : Date.now();
+        elements.sessionStartText.textContent = new Date(validStart).toLocaleString();
+
+        if (session.session_ended_at) {
+            const endedMs = Date.parse(session.session_ended_at);
+            const durationSecs = session.session_duration_seconds != null
+                ? Number(session.session_duration_seconds)
+                : Math.max(0, Math.floor(((Number.isFinite(endedMs) ? endedMs : Date.now()) - validStart) / 1000));
+            elements.sessionStateBadge.textContent = "SESSION ENDED";
+            elements.sessionStateBadge.className = "rq-pill status-RESOLVED";
+            elements.sessionElapsedTimer.textContent = formatElapsedClock(durationSecs);
+            elements.sessionElapsedTimer.style.color = "#93c5fd";
+            elements.sessionEndRow.hidden = false;
+            elements.sessionEndText.textContent = Number.isFinite(endedMs)
+                ? new Date(endedMs).toLocaleString()
+                : "Ended";
+            elements.sessionDurationText.textContent = `Duration: ${formatDurationWords(durationSecs)}`;
+            elements.endSosSessionButton.disabled = true;
+            elements.endSosSessionButton.hidden = true;
+        } else {
+            elements.sessionStateBadge.textContent = "LIVE SOS SESSION";
+            elements.sessionStateBadge.className = "rq-pill sev-5";
+            elements.sessionElapsedTimer.style.color = "#38dfac";
+            elements.sessionEndRow.hidden = true;
+            elements.endSosSessionButton.hidden = false;
+            elements.endSosSessionButton.disabled = false;
+            elements.endSosSessionButton.textContent = "End SOS Session";
+            const updateTick = () => {
+                const elapsed = Math.max(0, Math.floor((Date.now() - validStart) / 1000));
+                elements.sessionElapsedTimer.textContent = formatElapsedClock(elapsed);
+            };
+            updateTick();
+            sessionTimerInterval = window.setInterval(updateTick, 1000);
+        }
+    }
+
+    async function loadActiveSosSession() {
+        if (!window.ResqlinkAuth) return;
+        try {
+            const data = await window.ResqlinkAuth.request("/emergencies/me/active-session", {
+                method: "GET",
+                cache: "no-store"
+            });
+            if (data && data.session) {
+                renderSosSession(data.session);
+            }
+        } catch (_err) {
+            // Non-fatal if active session check fails
+        }
+    }
+
+    async function endActiveSosSession() {
+        if (!activeSosSession || !activeSosSession.id || !window.ResqlinkAuth) return;
+        elements.endSosSessionButton.disabled = true;
+        elements.endSosSessionButton.textContent = "Ending session…";
+        try {
+            const ended = await window.ResqlinkAuth.request(
+                `/emergencies/${encodeURIComponent(activeSosSession.id)}/end-session`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({})
+                }
+            );
+            renderSosSession({
+                ...activeSosSession,
+                ...ended,
+                session_ended_at: ended.session_ended_at || new Date().toISOString(),
+            });
+            try {
+                if (typeof BroadcastChannel === "function") {
+                    const ch = new BroadcastChannel("resqlink-emergencies");
+                    ch.postMessage({ type: "emergency-updated", alert_id: ended.alert_id });
+                    ch.close();
+                }
+                localStorage.setItem("resqlink_emergency_sync", String(Date.now()));
+            } catch (_syncErr) {
+                // ignore sync errors
+            }
+        } catch (error) {
+            elements.endSosSessionButton.disabled = false;
+            elements.endSosSessionButton.textContent = "End SOS Session";
+            setProgress("error", `Could not end SOS session: ${error.message}`, "SESSION ERROR");
+        }
+    }
+
+    if (elements.endSosSessionButton) {
+        elements.endSosSessionButton.addEventListener("click", endActiveSosSession);
+    }
+
+    window.addEventListener("offline", () => {
+        setProgress(
+            "error",
+            "You appear offline. Any pending SOS alert retry key is preserved locally until connection returns.",
+            "OFFLINE"
+        );
+    });
+    window.addEventListener("online", () => {
+        if (pendingAttempt && !flowBusy) {
+            setProgress(
+                "ready",
+                "Connection restored. Click SOS to retry your saved alert safely.",
+                "ONLINE"
+            );
+        }
+    });
+
+    if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("./sw.js").catch(() => undefined);
     }
 
     initializeMap();

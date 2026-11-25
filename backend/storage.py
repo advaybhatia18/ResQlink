@@ -304,7 +304,8 @@ def _find_idempotent_alert(user_id: str, idempotency_key: str) -> dict | None:
             .table("emergencies")
             .select(
                 "id, alert_id, user_id, idempotency_key, severity, latitude, longitude, "
-                "location_accuracy_m, status, created_at"
+                "location_accuracy_m, status, created_at, session_started_at, "
+                "session_ended_at, session_duration_seconds"
             )
             .eq("user_id", user_id)
             .eq("idempotency_key", idempotency_key)
@@ -437,8 +438,12 @@ def save_alert(
             emergency["alert_id"] = existing["alert_id"]
         if existing.get("created_at"):
             emergency["created_at"] = existing["created_at"]
+        emergency["session_started_at"] = existing.get("session_started_at") or existing.get("created_at")
+        emergency["session_ended_at"] = existing.get("session_ended_at")
+        emergency["session_duration_seconds"] = existing.get("session_duration_seconds")
         return existing["id"], True, existing["status"]
 
+    now_iso = datetime.now(timezone.utc).isoformat()
     insert_data = {
         "severity": severity,
         "label": emergency["label"],
@@ -448,6 +453,7 @@ def save_alert(
         "location_accuracy_m": float(accuracy) if accuracy is not None else None,
         "user_id": user_id,
         "idempotency_key": idempotency_key,
+        "session_started_at": now_iso,
     }
     if isinstance(emergency.get("category"), str) and emergency["category"] in VALID_CATEGORIES:
         insert_data["category"] = emergency["category"]
@@ -485,6 +491,9 @@ def save_alert(
                     emergency["alert_id"] = existing["alert_id"]
                 if existing.get("created_at"):
                     emergency["created_at"] = existing["created_at"]
+                emergency["session_started_at"] = existing.get("session_started_at") or existing.get("created_at")
+                emergency["session_ended_at"] = existing.get("session_ended_at")
+                emergency["session_duration_seconds"] = existing.get("session_duration_seconds")
                 return existing["id"], True, existing["status"]
             error_text = str(error).lower()
             if getattr(error, "code", None) == "23505" or "alert_id" in error_text:
@@ -529,6 +538,9 @@ def save_alert(
     emergency["alert_id"] = resolved_alert_id
     if row.get("created_at"):
         emergency["created_at"] = row["created_at"]
+    emergency["session_started_at"] = row.get("session_started_at") or row.get("created_at") or now_iso
+    emergency["session_ended_at"] = row.get("session_ended_at")
+    emergency["session_duration_seconds"] = row.get("session_duration_seconds")
 
     try:
         get_database_client().table("emergency_status_history").insert({
@@ -536,7 +548,7 @@ def save_alert(
             "changed_by": user_id,
             "previous_status": None,
             "new_status": "ACTIVE",
-            "note": "Initial emergency report recorded.",
+            "note": "Initial emergency report recorded. SOS session started.",
         }).execute()
     except (APIError, HTTPError):
         pass
@@ -612,12 +624,38 @@ def _sanitize_alert_record(alert: dict, user_id: str | None = None, include_owne
     sanitized = {
         key: value for key, value in alert.items() if key != "user_id"
     }
+    if not sanitized.get("session_started_at"):
+        sanitized["session_started_at"] = sanitized.get("created_at")
+    if "session_ended_at" not in sanitized:
+        sanitized["session_ended_at"] = None
+    if "session_duration_seconds" not in sanitized:
+        sanitized["session_duration_seconds"] = None
     if include_owner_ref and owner_id:
         sanitized["reporter_ref"] = owner_id[:8]
     return sanitized
 
 
-def get_alerts(user_id: str | None = None, limit: int | None = None) -> list[dict]:
+def _parse_utc_timestamp(value: str | None, fallback: str | None = None) -> datetime:
+    candidate = value or fallback
+    if isinstance(candidate, str) and candidate.strip():
+        try:
+            parsed = datetime.fromisoformat(candidate.strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
+
+
+def get_alerts(
+    user_id: str | None = None,
+    limit: int | None = None,
+    *,
+    status: str | None = None,
+    category: str | None = None,
+    severity: int | None = None,
+) -> list[dict]:
     if user_id is not None:
         try:
             user_id = str(UUID(user_id))
@@ -632,10 +670,17 @@ def get_alerts(user_id: str | None = None, limit: int | None = None) -> list[dic
             "id, alert_id, user_id, severity, label, priority, status, created_at, "
             "latitude, longitude, location_accuracy_m, category, "
             "recommended_services, requested_services, notes, admin_notes, "
-            "updated_at, acknowledged_at, resolved_at"
+            "updated_at, acknowledged_at, resolved_at, "
+            "session_started_at, session_ended_at, session_duration_seconds"
         )
         if user_id is not None:
             query = query.eq("user_id", user_id)
+        if status is not None:
+            query = query.eq("status", status)
+        if category is not None and category.strip():
+            query = query.eq("category", category.strip().upper())
+        if severity is not None:
+            query = query.eq("severity", severity)
         ordered_query = query.order("id", desc=True)
         if limit is not None:
             ordered_query = ordered_query.limit(max(1, min(limit, 500)))
@@ -674,7 +719,8 @@ def _load_alert_detail_by_column(
             "id, alert_id, user_id, severity, label, priority, status, created_at, "
             "latitude, longitude, location_accuracy_m, category, "
             "recommended_services, requested_services, notes, admin_notes, "
-            "updated_at, acknowledged_at, resolved_at"
+            "updated_at, acknowledged_at, resolved_at, "
+            "session_started_at, session_ended_at, session_duration_seconds"
         ).eq(column, value)
         if user_id is not None:
             query = query.eq("user_id", user_id)
@@ -761,7 +807,7 @@ def update_alert_status(
         existing_resp = (
             get_database_client()
             .table("emergencies")
-            .select("id, status, admin_notes")
+            .select("id, status, admin_notes, created_at, session_started_at, session_ended_at")
             .eq("id", alert_id)
             .limit(1)
             .execute()
@@ -774,9 +820,11 @@ def update_alert_status(
 
     if not isinstance(existing_resp.data, list) or not existing_resp.data:
         return None
-    previous_status = existing_resp.data[0].get("status")
+    existing_row = existing_resp.data[0]
+    previous_status = existing_row.get("status")
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_dt = datetime.now(timezone.utc)
+    now_iso = now_dt.isoformat()
     update_fields: dict = {
         "status": normalized_status,
         "updated_at": now_iso,
@@ -785,6 +833,13 @@ def update_alert_status(
         update_fields["acknowledged_at"] = now_iso
     elif normalized_status == "RESOLVED":
         update_fields["resolved_at"] = now_iso
+        if not existing_row.get("session_ended_at"):
+            started_dt = _parse_utc_timestamp(
+                existing_row.get("session_started_at"),
+                existing_row.get("created_at"),
+            )
+            update_fields["session_ended_at"] = now_iso
+            update_fields["session_duration_seconds"] = max(0, int((now_dt - started_dt).total_seconds()))
     if admin_notes is not None:
         update_fields["admin_notes"] = admin_notes.strip()[:2000]
 
@@ -794,7 +849,10 @@ def update_alert_status(
             .table("emergencies")
             .update(update_fields)
             .eq("id", alert_id)
-            .select("id, alert_id, status, admin_notes, updated_at, acknowledged_at, resolved_at")
+            .select(
+                "id, alert_id, status, admin_notes, updated_at, acknowledged_at, resolved_at, "
+                "session_started_at, session_ended_at, session_duration_seconds"
+            )
             .execute()
         )
     except (APIError, HTTPError) as error:
@@ -834,6 +892,172 @@ def update_alert_status(
         "status": normalized_status,
         "admin_notes": update_resp.data[0].get("admin_notes"),
         "updated_at": update_resp.data[0].get("updated_at"),
+        "session_started_at": update_resp.data[0].get("session_started_at"),
+        "session_ended_at": update_resp.data[0].get("session_ended_at"),
+        "session_duration_seconds": update_resp.data[0].get("session_duration_seconds"),
+    }
+
+
+def _format_duration_label(seconds: int) -> str:
+    total = max(0, int(seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}h {minutes}m {secs}s"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
+def get_active_sos_session(user_id: str) -> dict | None:
+    """Return the user's latest ongoing SOS session (session_ended_at is null and not RESOLVED)."""
+    try:
+        user_id = str(UUID(user_id))
+    except (ValueError, TypeError, AttributeError) as error:
+        raise HTTPException(status_code=401, detail="Invalid authenticated user") from error
+
+    try:
+        response = (
+            get_database_client()
+            .table("emergencies")
+            .select(
+                "id, alert_id, user_id, severity, label, priority, status, created_at, "
+                "latitude, longitude, location_accuracy_m, category, "
+                "recommended_services, requested_services, notes, admin_notes, "
+                "updated_at, acknowledged_at, resolved_at, "
+                "session_started_at, session_ended_at, session_duration_seconds"
+            )
+            .eq("user_id", user_id)
+            .is_("session_ended_at", "null")
+            .neq("status", "RESOLVED")
+            .order("id", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except (APIError, HTTPError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not load active SOS session from Supabase",
+        ) from error
+
+    if not isinstance(response.data, list) or not response.data:
+        return None
+    return _sanitize_alert_record(response.data[0], user_id=user_id, include_owner_ref=False)
+
+
+def end_sos_session(
+    alert_id: int,
+    actor_user_id: str,
+    owner_filter: str | None = None,
+    note: str | None = None,
+) -> dict | None:
+    """End a timed SOS session and persist session_ended_at and session_duration_seconds."""
+    if type(alert_id) is not int or alert_id < 1:
+        raise HTTPException(status_code=422, detail="Invalid emergency ID")
+    try:
+        actor_uuid = str(UUID(actor_user_id))
+    except (ValueError, TypeError, AttributeError) as error:
+        raise HTTPException(status_code=401, detail="Invalid authenticated user") from error
+    if owner_filter is not None:
+        try:
+            owner_filter = str(UUID(owner_filter))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise HTTPException(status_code=401, detail="Invalid authenticated user") from error
+
+    try:
+        query = (
+            get_database_client()
+            .table("emergencies")
+            .select(
+                "id, alert_id, user_id, status, created_at, requested_services, "
+                "session_started_at, session_ended_at, session_duration_seconds"
+            )
+            .eq("id", alert_id)
+        )
+        if owner_filter is not None:
+            query = query.eq("user_id", owner_filter)
+        existing_resp = query.limit(1).execute()
+    except (APIError, HTTPError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not load the emergency session in Supabase",
+        ) from error
+
+    if not isinstance(existing_resp.data, list) or not existing_resp.data:
+        return None
+    row = existing_resp.data[0]
+    started_at = row.get("session_started_at") or row.get("created_at")
+    if row.get("session_ended_at"):
+        return {
+            "id": row["id"],
+            "alert_id": row.get("alert_id") or row["id"],
+            "status": row.get("status"),
+            "requested_services": row.get("requested_services") or [],
+            "session_started_at": started_at,
+            "session_ended_at": row.get("session_ended_at"),
+            "session_duration_seconds": row.get("session_duration_seconds") or 0,
+            "already_ended": True,
+        }
+
+    ended_dt = datetime.now(timezone.utc)
+    ended_iso = ended_dt.isoformat()
+    started_dt = _parse_utc_timestamp(row.get("session_started_at"), row.get("created_at"))
+    duration_seconds = max(0, int((ended_dt - started_dt).total_seconds()))
+
+    try:
+        update_resp = (
+            get_database_client()
+            .table("emergencies")
+            .update({
+                "session_ended_at": ended_iso,
+                "session_duration_seconds": duration_seconds,
+                "updated_at": ended_iso,
+            })
+            .eq("id", alert_id)
+            .select(
+                "id, alert_id, status, requested_services, "
+                "session_started_at, session_ended_at, session_duration_seconds"
+            )
+            .execute()
+        )
+    except (APIError, HTTPError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not end the SOS session in Supabase",
+        ) from error
+
+    if not isinstance(update_resp.data, list) or not update_resp.data:
+        return None
+    updated = update_resp.data[0]
+    cleaned_note = note.strip()[:500] if isinstance(note, str) and note.strip() else None
+    duration_text = _format_duration_label(duration_seconds)
+    history_note = (
+        f"SOS session ended ({duration_text}): {cleaned_note}"
+        if cleaned_note
+        else f"SOS session ended (duration: {duration_text})."
+    )
+    try:
+        get_database_client().table("emergency_status_history").insert({
+            "emergency_id": alert_id,
+            "changed_by": actor_uuid,
+            "previous_status": updated.get("status"),
+            "new_status": updated.get("status"),
+            "note": history_note,
+        }).execute()
+    except (APIError, HTTPError):
+        pass
+
+    return {
+        "id": alert_id,
+        "alert_id": updated.get("alert_id") or alert_id,
+        "status": updated.get("status"),
+        "requested_services": updated.get("requested_services") or [],
+        "session_started_at": updated.get("session_started_at") or started_at,
+        "session_ended_at": updated.get("session_ended_at") or ended_iso,
+        "session_duration_seconds": updated.get("session_duration_seconds")
+        if updated.get("session_duration_seconds") is not None
+        else duration_seconds,
+        "already_ended": False,
     }
 
 
@@ -888,3 +1112,149 @@ def resolve_alert(alert_id: int) -> bool:
             detail="Supabase returned an invalid emergency update result"
         )
     return any(row["id"] == alert_id for row in response.data)
+
+
+def save_anonymous_location_alert(
+    emergency: dict,
+    idempotency_key: str,
+) -> tuple[int, bool, str]:
+    """Save an unauthenticated location-only SOS alert (user_id is NULL)."""
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip() or len(idempotency_key.strip()) > 128:
+        raise HTTPException(status_code=422, detail="Invalid idempotency key")
+    cleaned_key = idempotency_key.strip()
+
+    latitude = emergency.get("latitude")
+    longitude = emergency.get("longitude")
+    if (
+        isinstance(latitude, bool)
+        or isinstance(longitude, bool)
+        or not isinstance(latitude, (int, float))
+        or not isinstance(longitude, (int, float))
+        or not math.isfinite(latitude)
+        or not math.isfinite(longitude)
+        or not (-90 <= latitude <= 90)
+        or not (-180 <= longitude <= 180)
+    ):
+        raise HTTPException(status_code=422, detail="Valid GPS coordinates are required for location-only SOS")
+
+    accuracy = emergency.get("location_accuracy_m")
+    if accuracy is not None and (
+        isinstance(accuracy, bool)
+        or not isinstance(accuracy, (int, float))
+        or not math.isfinite(accuracy)
+        or accuracy < 0
+    ):
+        raise HTTPException(status_code=422, detail="Invalid GPS accuracy")
+
+    try:
+        existing_resp = (
+            get_database_client()
+            .table("emergencies")
+            .select("id, alert_id, status, created_at, session_started_at")
+            .is_("user_id", "null")
+            .eq("idempotency_key", cleaned_key)
+            .limit(1)
+            .execute()
+        )
+        if isinstance(existing_resp.data, list) and existing_resp.data:
+            existing = existing_resp.data[0]
+            emergency["alert_id"] = existing.get("alert_id") or existing["id"]
+            emergency["created_at"] = existing.get("created_at")
+            emergency["session_started_at"] = existing.get("session_started_at") or existing.get("created_at")
+            return existing["id"], True, existing["status"]
+    except (APIError, HTTPError) as error:
+        raise HTTPException(status_code=503, detail="Could not verify location-only SOS submission") from error
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    insert_data = {
+        "severity": 4,
+        "label": "VERY HIGH",
+        "priority": 80,
+        "category": "PERSONAL_SAFETY",
+        "recommended_services": ["POLICE", "AMBULANCE_MEDICAL"],
+        "requested_services": [],
+        "notes": "Anonymous location-only SOS (submitted without sign-in)",
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "location_accuracy_m": float(accuracy) if accuracy is not None else None,
+        "user_id": None,
+        "idempotency_key": cleaned_key,
+        "session_started_at": now_iso,
+    }
+
+    response = None
+    generated_alert_id = None
+    for _attempt in range(5):
+        generated_alert_id = generate_alert_id()
+        insert_data["alert_id"] = generated_alert_id
+        try:
+            response = get_database_client().table("emergencies").insert(insert_data).execute()
+            break
+        except APIError as error:
+            if getattr(error, "code", None) == "23505" or "alert_id" in str(error).lower():
+                continue
+            raise HTTPException(status_code=503, detail="Could not save location-only SOS to Supabase") from error
+        except HTTPError as error:
+            raise HTTPException(status_code=503, detail="Could not save location-only SOS to Supabase") from error
+
+    if response is None or not isinstance(response.data, list) or not response.data:
+        raise HTTPException(status_code=503, detail="Supabase returned an invalid saved location-only SOS")
+
+    row = response.data[0]
+    emergency["alert_id"] = row.get("alert_id") or generated_alert_id
+    if row.get("created_at"):
+        emergency["created_at"] = row["created_at"]
+    emergency["session_started_at"] = row.get("session_started_at") or row.get("created_at") or now_iso
+    return row["id"], False, row.get("status") or "ACTIVE"
+
+
+def get_emergency_reporter_info(alert_id: int) -> dict | None:
+    """Return reporter profile/email for an emergency (admin-only)."""
+    if type(alert_id) is not int or alert_id < 1:
+        raise HTTPException(status_code=422, detail="Invalid emergency ID")
+
+    try:
+        resp = (
+            get_database_client()
+            .table("emergencies")
+            .select("id, alert_id, user_id")
+            .eq("id", alert_id)
+            .limit(1)
+            .execute()
+        )
+    except (APIError, HTTPError) as error:
+        raise HTTPException(status_code=503, detail="Could not load emergency reporter reference") from error
+
+    if not isinstance(resp.data, list) or not resp.data:
+        return None
+    row = resp.data[0]
+    user_id = row.get("user_id")
+    if not user_id:
+        return {
+            "id": row["id"],
+            "alert_id": row.get("alert_id") or row["id"],
+            "anonymous": True,
+            "message": "Location-only SOS submitted without sign-in.",
+        }
+
+    profile = get_user_profile(user_id) or {}
+    email = None
+    try:
+        auth_resp = get_database_client().auth.admin.get_user_by_id(user_id)
+        auth_user = getattr(auth_resp, "user", None)
+        if auth_user is not None:
+            email = getattr(auth_user, "email", None)
+    except Exception:
+        email = None
+
+    return {
+        "id": row["id"],
+        "alert_id": row.get("alert_id") or row["id"],
+        "anonymous": False,
+        "user_id": user_id,
+        "name": profile.get("name") or "Registered user",
+        "email": email,
+        "phone": profile.get("phone"),
+        "role": profile.get("role") or "USER",
+        "account_created_at": profile.get("created_at"),
+    }

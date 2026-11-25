@@ -66,6 +66,7 @@ jobs:
         run: |
           mkdir _site
           cp *.html *.css *.js _site/
+          cp manifest.webmanifest _site/
           python - <<'PY'
           import ipaddress
           import json
