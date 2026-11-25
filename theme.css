@@ -260,20 +260,35 @@ textarea {
     }
 }
 
+/* Role-aware Workspace Accents */
+body[data-role="ADMIN"] .rq-header {
+    border-bottom-color: rgba(255, 191, 105, 0.32);
+}
+
+body[data-role="ADMIN"] .rq-kicker {
+    color: var(--rq-amber);
+}
+
+body[data-role="USER"] .rq-header {
+    border-bottom-color: rgba(54, 230, 239, 0.28);
+}
+
 /* Main Layout */
 .rq-container {
     max-width: 1240px;
     margin: 0 auto;
-    padding: 28px clamp(16px, 3vw, 32px) 64px;
+    padding: 32px clamp(18px, 3vw, 36px) 76px;
 }
 
 .rq-page-head {
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 18px;
+    gap: 20px;
     flex-wrap: wrap;
-    margin-bottom: 24px;
+    margin-bottom: 28px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--rq-border);
 }
 
 .rq-kicker {
@@ -301,19 +316,19 @@ textarea {
 .rq-grid-2 {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px;
+    gap: 22px;
 }
 
 .rq-grid-3 {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 18px;
+    gap: 22px;
 }
 
 .rq-grid-4 {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 16px;
+    gap: 18px;
 }
 
 @media (max-width: 960px) {
@@ -335,10 +350,14 @@ textarea {
     background: var(--rq-surface);
     border: 1px solid var(--rq-border);
     border-radius: var(--rq-radius);
-    padding: 20px;
+    padding: 24px;
     box-shadow: var(--rq-shadow);
     backdrop-filter: blur(10px);
     transition: border-color 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.rq-card:hover {
+    border-color: var(--rq-border-strong);
 }
 
 .rq-card-title {

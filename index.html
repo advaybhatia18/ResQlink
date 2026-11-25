@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#070d17">
     <meta name="description" content="ResQlink emergency-assistance platform, service classification, and responder simulation system.">
     <title>ResQlink | Emergency Assistance Platform</title>
+    <link rel="preconnect" href="https://resqlink-ji0g.onrender.com" crossorigin>
     <link rel="stylesheet" href="theme.css">
     <style>
         .hero {
@@ -91,10 +92,12 @@
                     location, manage emergency contacts, and coordinate responses through the Admin Command Center.
                 </p>
                 <div class="hero-actions" id="landingCtaGroup">
-                    <a class="rq-btn rq-btn-danger" href="sos.html">Open SOS Emergency Console</a>
-                    <a class="rq-btn rq-btn-primary" href="login.html" id="landingSignInBtn">Sign in</a>
+                    <a class="rq-btn rq-btn-danger" href="sos.html" id="landingSosBtn">Send Location-Only SOS</a>
+                    <a class="rq-btn rq-btn-primary" href="dashboard.html" id="landingAdminBtn" hidden>Open Admin Command Center</a>
+                    <a class="rq-btn" href="simulator.html" id="landingSimBtn" hidden>Launch Simulator</a>
+                    <a class="rq-btn rq-btn-primary" href="login.html" id="landingSignInBtn">Member Sign in</a>
                     <a class="rq-btn" href="register.html" id="landingRegisterBtn">Create account</a>
-                    <a class="rq-btn" href="user-dashboard.html" id="landingDashboardBtn" hidden>Go to My Dashboard</a>
+                    <a class="rq-btn rq-btn-primary" href="user-dashboard.html" id="landingDashboardBtn" hidden>Open Member Hub</a>
                 </div>
             </div>
 
@@ -186,7 +189,14 @@
             if (user) {
                 document.getElementById("landingSignInBtn").hidden = true;
                 document.getElementById("landingRegisterBtn").hidden = true;
-                document.getElementById("landingDashboardBtn").hidden = false;
+                document.getElementById("landingSosBtn").textContent = "Open SOS Emergency Console";
+                if (user.role === "ADMIN") {
+                    document.getElementById("landingAdminBtn").hidden = false;
+                    document.getElementById("landingSimBtn").hidden = false;
+                    document.getElementById("landingDashboardBtn").hidden = false;
+                } else {
+                    document.getElementById("landingDashboardBtn").hidden = false;
+                }
             }
         })();
     </script>

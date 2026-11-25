@@ -123,9 +123,9 @@ body.auth-page {
 .auth-panel {
     align-self: center;
     width: 100%;
-    max-width: 510px;
+    max-width: 520px;
     margin: 0 auto;
-    padding: clamp(30px, 5vw, 58px);
+    padding: clamp(32px, 5vw, 56px);
 }
 
 .auth-panel h2 {
