@@ -22,6 +22,21 @@
         return value.replace(/\/+$/, "");
     }
 
+    let inFlightCurrentUser = null;
+    let cachedCurrentUser = null;
+    let cachedUserToken = null;
+
+    function warmBackend() {
+        try {
+            if (typeof fetch !== "function" || typeof window.RESQLINK_API_URL !== "string") return;
+            const base = window.RESQLINK_API_URL.trim().replace(/\/+$/, "");
+            if (!base || base.indexOf("api.example.test") !== -1) return;
+            fetch(`${base}/healthz`, { method: "GET", mode: "cors", cache: "no-store" }).catch(() => {});
+        } catch (_err) {
+            // ignore warmup failures
+        }
+    }
+
     function getAccessToken() {
         try {
             sessionStorage.removeItem(LEGACY_USER_KEY);
@@ -40,6 +55,8 @@
             throw new AuthError("The API did not return a valid sign-in session.", 502, "invalid_session");
         }
         try {
+            cachedCurrentUser = null;
+            cachedUserToken = null;
             sessionStorage.setItem(TOKEN_KEY, token);
             sessionStorage.removeItem(LEGACY_USER_KEY);
         } catch (error) {
@@ -52,6 +69,8 @@
     }
 
     function clearSession() {
+        cachedCurrentUser = null;
+        cachedUserToken = null;
         try {
             sessionStorage.removeItem(TOKEN_KEY);
             sessionStorage.removeItem(LEGACY_USER_KEY);
@@ -164,23 +183,42 @@
     async function getCurrentUser() {
         const token = getAccessToken();
         if (!token) {
+            cachedCurrentUser = null;
+            cachedUserToken = null;
             throw new AuthError("Sign in to continue.", 401, "unauthenticated");
         }
-        const data = await request("/me", { method: "GET", accessToken: token });
-        if (
-            !data
-            || typeof data.id !== "string"
-            || typeof data.name !== "string"
-            || typeof data.role !== "string"
-        ) {
-            throw new AuthError(
-                "The API did not return a valid signed-in profile.",
-                502,
-                "invalid_profile"
-            );
+        if (cachedCurrentUser && cachedUserToken === token) {
+            return cachedCurrentUser;
         }
-        return data;
+        if (inFlightCurrentUser) {
+            return inFlightCurrentUser;
+        }
+        inFlightCurrentUser = (async () => {
+            const data = await request("/me", { method: "GET", accessToken: token });
+            if (
+                !data
+                || typeof data.id !== "string"
+                || typeof data.name !== "string"
+                || typeof data.role !== "string"
+            ) {
+                throw new AuthError(
+                    "The API did not return a valid signed-in profile.",
+                    502,
+                    "invalid_profile"
+                );
+            }
+            cachedCurrentUser = data;
+            cachedUserToken = token;
+            return data;
+        })();
+        try {
+            return await inFlightCurrentUser;
+        } finally {
+            inFlightCurrentUser = null;
+        }
     }
+
+    warmBackend();
 
     window.ResqlinkAuth = Object.freeze({
         AuthError,

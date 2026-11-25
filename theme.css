@@ -337,6 +337,8 @@ textarea {
     border-radius: var(--rq-radius);
     padding: 20px;
     box-shadow: var(--rq-shadow);
+    backdrop-filter: blur(10px);
+    transition: border-color 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .rq-card-title {

@@ -336,8 +336,7 @@
         elements.severity.disabled = false;
         if (elements.category) elements.category.disabled = false;
         elements.button.disabled = !currentUser;
-        elements.button.querySelector(".sos-button-label").textContent = "SOS";
-        elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
+        setButtonState(currentUser ? "ready" : "anonymous", "SOS", currentUser ? "SEND ALERT" : "LOCATION ONLY");
         showRecoveryActions();
         setProgress(
             "ready",
@@ -573,11 +572,16 @@
         ].join("-");
     }
 
+    function setButtonState(state, label, subtitle) {
+        elements.button.dataset.sosState = state;
+        elements.button.querySelector(".sos-button-label").textContent = label;
+        elements.button.querySelector(".sos-button-subtitle").textContent = subtitle;
+    }
+
     function showAuthError(error) {
         currentUser = null;
         elements.button.disabled = false;
-        elements.button.querySelector(".sos-button-label").textContent = "SOS";
-        elements.button.querySelector(".sos-button-subtitle").textContent = "LOCATION ONLY";
+        setButtonState("anonymous", "SOS", "LOCATION ONLY");
         showRecoveryActions({ auth: error.code !== "unauthenticated" });
         elements.signInLink.hidden = false;
         setProgress(
@@ -601,8 +605,7 @@
             currentUser = user;
             elements.signInLink.hidden = true;
             elements.button.disabled = false;
-            elements.button.querySelector(".sos-button-label").textContent = "SOS";
-            elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
+            setButtonState("ready", "SOS", "SEND ALERT");
             loadSosContacts();
             loadActiveSosSession();
 
@@ -655,8 +658,7 @@
                     };
                     showCoordinates(coords);
                 }
-                elements.button.querySelector(".sos-button-label").textContent = "RETRY";
-                elements.button.querySelector(".sos-button-subtitle").textContent = "SAME ALERT";
+                setButtonState("retry", "RETRY", "SAME ALERT");
                 setProgress(
                     "error",
                     "A previous submission was not confirmed. Press SOS to retry the same alert safely.",
@@ -680,8 +682,7 @@
         if (!attempt.anonymous && (!currentUser || attempt.userId !== currentUser.id)) return;
         flowBusy = true;
         elements.button.disabled = true;
-        elements.button.querySelector(".sos-button-label").textContent = "SENDING";
-        elements.button.querySelector(".sos-button-subtitle").textContent = "PLEASE WAIT";
+        setButtonState("sending", "SENDING", "PLEASE WAIT");
         showRecoveryActions();
         setProgress(
             "submitting",
@@ -746,8 +747,7 @@
                     : `${duplicate ? "This alert was already recorded" : "Alert recorded"} as ${displayAlertId} (${result.status}). Public emergency services were not contacted.`,
                 duplicate ? "ALREADY SAVED" : "RECORDED"
             );
-            elements.button.querySelector(".sos-button-label").textContent = "SENT";
-            elements.button.querySelector(".sos-button-subtitle").textContent = "RECORDED";
+            setButtonState("sent", "SENT", "RECORDED");
             if (pendingAttempt) {
                 elements.button.disabled = true;
                 elements.newAlertButton.hidden = true;
@@ -763,8 +763,7 @@
         } catch (error) {
             if (error.code === "expired" || error.code === "unauthenticated") {
                 currentUser = null;
-                elements.button.querySelector(".sos-button-label").textContent = "SIGN IN";
-                elements.button.querySelector(".sos-button-subtitle").textContent = "TO RETRY";
+                setButtonState("retry", "SIGN IN", "TO RETRY");
                 elements.signInLink.hidden = false;
                 showRecoveryActions();
                 setProgress(
@@ -773,8 +772,7 @@
                     "SESSION EXPIRED"
                 );
             } else {
-                elements.button.querySelector(".sos-button-label").textContent = "RETRY";
-                elements.button.querySelector(".sos-button-subtitle").textContent = "SAME ALERT";
+                setButtonState("retry", "RETRY", "SAME ALERT");
                 showRecoveryActions();
                 setProgress(
                     "error",
@@ -863,8 +861,7 @@
         }
         flowBusy = true;
         elements.button.disabled = true;
-        elements.button.querySelector(".sos-button-label").textContent = "LOCATING";
-        elements.button.querySelector(".sos-button-subtitle").textContent = "PLEASE WAIT";
+        setButtonState("locating", "LOCATING", "GETTING GPS");
         showRecoveryActions();
         clearMapLocation("Waiting for a fresh GPS location");
         updateLocationStatus("locating", "Requesting device location…");
@@ -890,8 +887,7 @@
             if (coords.accuracy > MAX_ACCEPTABLE_ACCURACY_M) {
                 flowBusy = false;
                 elements.button.disabled = false;
-                elements.button.querySelector(".sos-button-label").textContent = "SOS";
-                elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
+                setButtonState(currentUser ? "ready" : "anonymous", "SOS", currentUser ? "SEND ALERT" : "LOCATION ONLY");
                 elements.locationActions.hidden = false;
                 elements.useApproximate.hidden = false;
                 elements.withoutLocation.hidden = !currentUser;
@@ -910,8 +906,7 @@
             updateLocationStatus("error", "Location unavailable");
             flowBusy = false;
             elements.button.disabled = false;
-            elements.button.querySelector(".sos-button-label").textContent = "SOS";
-            elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
+            setButtonState(currentUser ? "ready" : "anonymous", "SOS", currentUser ? "SEND ALERT" : "LOCATION ONLY");
             elements.locationActions.hidden = false;
             elements.retryLocation.hidden = false;
             elements.useApproximate.hidden = true;
@@ -955,8 +950,7 @@
         customRequestedServices = null;
         if (elements.notes) elements.notes.value = "";
         elements.button.disabled = false;
-        elements.button.querySelector(".sos-button-label").textContent = "SOS";
-        elements.button.querySelector(".sos-button-subtitle").textContent = "SEND ALERT";
+        setButtonState(currentUser ? "ready" : "anonymous", "SOS", currentUser ? "SEND ALERT" : "LOCATION ONLY");
         clearMapLocation("Map preview appears after GPS is available");
         updateLocationStatus("idle", "Not requested");
         setProgress("ready", "Ready when you are. Your alert will be sent to the ResQlink API.", "READY");
